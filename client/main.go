@@ -4,12 +4,35 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log-forwarder-client/reader"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
-  "log-forwarder-client/reader"	
+
 )
+
+func getDirContent(path string) ([]string, error) {
+  result := []string{} 
+  dirContent,err := os.ReadDir(path)
+  if err != nil {
+    return result,err
+  }
+  for _,t := range dirContent {
+    fmt.Println(filepath.Join(path,t.Name()))
+    if t.IsDir(){
+      tmp,err := getDirContent(filepath.Join(path,t.Name()))
+      if err != nil {
+        return result,err
+      }
+      result = append(result, tmp...)
+    }else{
+      result = append(result, filepath.Join(path,t.Name()))
+    }
+  }
+  return result, nil
+}
 
 func startReading(ctx context.Context,path string) {
 	go func() {
@@ -22,10 +45,19 @@ func startReading(ctx context.Context,path string) {
 
 func main() {
 	// Create a context and cancel function to manage the lifecycle of operations
-	ctx, cancel := context.WithCancel(context.Background())
+  ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // Ensure the context is canceled when main exits
 
-  startReading(ctx,"./test.log")
+  // startReading(ctx,"./test.log")
+  dirContent, err := getDirContent("./test/")
+  if err != nil {
+    // Handle error
+  }
+
+  for _, dirData := range dirContent {
+    startReading(ctx, dirData)
+  }
+
 	// Start the ReadFile operation in a separate goroutine
 
 	// Wait for a termination signal (SIGINT or SIGTERM)

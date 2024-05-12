@@ -51,7 +51,7 @@ func main() {
   // startReading(ctx,"./test.log")
   dirContent, err := getDirContent("./test/")
   if err != nil {
-    // Handle error
+    log.Fatalln(err)
   }
 
   for _, dirData := range dirContent {

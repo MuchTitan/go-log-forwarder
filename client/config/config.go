@@ -17,7 +17,7 @@ func Env(env string) string {
     }
 
     if defaultValue, ok := DefaultValues[env]; ok {
-        log.Printf("Couldn't find value for %s. Using default: %s", env, defaultValue)
+        // log.Printf("Couldn't find value for %s. Using default: %s", env, defaultValue)
         return defaultValue
     }
 

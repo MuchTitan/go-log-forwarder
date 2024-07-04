@@ -4,83 +4,129 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
-	"log-forwarder-client/config"
-	"log-forwarder-client/models"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/nxadm/tail"
 )
 
-type PostData struct {
-  FilePath string `json:"filePath"`
-  Data string `json:"data"`
-  Num int `json:"lineNumber"`
-  Timestamp int64 `json:"timestamp"`
+type Reader struct {
+	path         string
+	serverUrl    string
+	cancelFunc   context.CancelFunc
+	doneCh       chan struct{}
+	Lines        []*LineData
+	LastSendLine int
 }
 
-func createPostData(path string) *PostData {
-  return &PostData{FilePath: path ,Timestamp: time.Now().Unix()}
+type LineData struct {
+	FilePath  string `json:"filePath"`
+	Data      string `json:"data"`
+	Num       int    `json:"lineNumber"`
+	Timestamp int64  `json:"timestamp"`
 }
 
-func Reader(ctx context.Context, path string) <-chan models.LogLine {
-	out := make(chan models.LogLine)
-	t, err := tail.TailFile(path, tail.Config{Follow: true, ReOpen: true})
+type Config struct {
+	Path      string
+	ServerUrl string
+}
+
+func (r *Reader) GetPath() string {
+	return r.path
+}
+
+func (r *Reader) IsRunning() bool {
+	return r.doneCh != nil
+}
+
+func createPostData(path string) *LineData {
+	return &LineData{
+		FilePath:  path,
+		Timestamp: time.Now().Unix(),
+	}
+}
+
+func postData(url string, data []byte) (bool, error) {
+	res, err := http.Post(url, "application/json", bytes.NewBuffer(data))
+	if err != nil {
+		return false, err
+	} else if res.StatusCode != http.StatusOK {
+		return false, errors.New(fmt.Sprintf("While transmitting line %s the StatusCode was %d", string(data), res.StatusCode))
+	}
+	return true, nil
+}
+
+func New(config Config) *Reader {
+	if _, err := os.Stat(config.Path); err != nil {
+		log.Fatalf("No File found for path: %s", config.Path)
+	}
+	reader := &Reader{
+		path:      config.Path,
+		serverUrl: "http://127.0.0.1:8000/test",
+		Lines:     []*LineData{},
+	}
+
+	if config.ServerUrl != "" {
+		reader.serverUrl = config.ServerUrl
+	}
+
+	return reader
+}
+
+func (r *Reader) Start() {
+	if r.doneCh != nil {
+		return
+	}
+	t, err := tail.TailFile(r.path, tail.Config{Follow: true, ReOpen: true})
 	if err != nil {
 		log.Fatalln(err)
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	r.cancelFunc = cancel
+
+	done := make(chan struct{})
+	r.doneCh = done
+	defer close(done)
+
 	go func() {
-		defer close(out)
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case line, ok := <-t.Lines:
 				if !ok {
+					log.Fatalf("[ERROR] line read: %s", err)
 					return
 				}
-				result := models.LogLine{Data: line.Text,LineNum: line.Num, TransmitionStatus: false}
-				select {
-				case <-ctx.Done():
-					return
-				case out <- result:
+				data := createPostData(r.path)
+				data.Data, data.Num = line.Text, line.Num
+				jsonData, err := json.Marshal(data)
+				if err != nil {
+					log.Printf("While processing data for Line %d in File %s an error occurred:\n%s", line.Num, r.path, err)
 				}
+				transmissionStatus, err := postData(r.serverUrl, jsonData)
+				if err != nil {
+					log.Println(err)
+				}
+				if transmissionStatus {
+					r.LastSendLine = data.Num
+				}
+				r.Lines = append(r.Lines, data)
 			}
 		}
 	}()
-	return out
 }
 
-func ReadFile(ctx context.Context, path string) error {
-  readerChannel := Reader(ctx,path)
-	url := fmt.Sprintf("http://%s:%s/test", config.Env("ServerUrl"), config.Env("ListenPort"))
-  for {
-    select {
-    case <-ctx.Done():
-      return ctx.Err()
-    case logline, ok := <- readerChannel:
-      if !ok {
-        return nil
-      }
-      data := createPostData(path) 
-      data.Data = logline.Data
-      data.Num = logline.LineNum
-      json_data, err := json.Marshal(data)
-      if err != nil {
-        log.Printf("Failed to create PostData for LogLine %s",logline.Data)
-      }
-      res, err := http.Post(url,"application/json",bytes.NewBuffer(json_data))
-      if err != nil {
-        logline.TransmitionStatus = false
-        log.Println(err)
-      } else if res.StatusCode != http.StatusOK {
-				log.Printf("While transmitting line %s the StatusCode was %d", logline.Data, res.StatusCode)
-        logline.TransmitionStatus = false
-      } else {
-        logline.TransmitionStatus = true
-      } 
-    }
-  }
+func (r *Reader) Stop() {
+	if r.doneCh == nil {
+		return
+	}
+	fmt.Printf("Stopping reader for File: %s\n", r.path)
+	r.cancelFunc()
+	<-r.doneCh
 }

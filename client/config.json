@@ -1,0 +1,5 @@
+{
+    "serverUrl": "localhost",
+    "serverPort": 8000,
+    "dbFile": "state.db"
+}

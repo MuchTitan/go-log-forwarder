@@ -1,28 +1,29 @@
+// reader.go
 package reader
 
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/nxadm/tail"
+	"github.com/sirupsen/logrus"
 )
 
 type Reader struct {
-	path         string
-	serverUrl    string
-	cancelFunc   context.CancelFunc
-	doneCh       chan struct{}
+	Path         string
+	CancelFunc   context.CancelFunc
+	DoneCh       chan struct{}
 	Lines        []*LineData
 	LastSendLine int
+	DBId         int
+	Config       *Config
+	Logger       *logrus.Logger
 }
-
 type LineData struct {
 	FilePath  string `json:"filePath"`
 	Data      string `json:"data"`
@@ -31,102 +32,99 @@ type LineData struct {
 }
 
 type Config struct {
-	Path      string
-	ServerUrl string
+	ServerURL string
+	DB        *sql.DB
 }
 
-func (r *Reader) GetPath() string {
-	return r.path
-}
-
-func (r *Reader) IsRunning() bool {
-	return r.doneCh != nil
-}
-
-func createPostData(path string) *LineData {
-	return &LineData{
-		FilePath:  path,
-		Timestamp: time.Now().Unix(),
+func New(path string, config *Config, logger *logrus.Logger) *Reader {
+	return &Reader{
+		Path:   path,
+		Lines:  []*LineData{},
+		Config: config,
+		Logger: logger,
 	}
 }
 
-func postData(url string, data []byte) (bool, error) {
-	res, err := http.Post(url, "application/json", bytes.NewBuffer(data))
+func (r *Reader) Start(ctx context.Context) error {
+	if r.DoneCh != nil {
+		return fmt.Errorf("reader already started")
+	}
+
+	t, err := tail.TailFile(r.Path, tail.Config{Follow: true, ReOpen: true})
 	if err != nil {
-		return false, err
-	} else if res.StatusCode != http.StatusOK {
-		return false, errors.New(fmt.Sprintf("While transmitting line %s the StatusCode was %d", string(data), res.StatusCode))
+		return fmt.Errorf("failed to tail file: %w", err)
 	}
-	return true, nil
+
+	ctx, cancel := context.WithCancel(ctx)
+	r.CancelFunc = cancel
+	r.DoneCh = make(chan struct{})
+
+	go r.processLines(ctx, t.Lines)
+
+	r.Logger.WithField("Path", r.Path).Info("Starting Reader")
+
+	return nil
 }
 
-func New(config Config) *Reader {
-	if _, err := os.Stat(config.Path); err != nil {
-		log.Fatalf("No File found for path: %s", config.Path)
-	}
-	reader := &Reader{
-		path:      config.Path,
-		serverUrl: "http://127.0.0.1:8000/test",
-		Lines:     []*LineData{},
-	}
+func (r *Reader) processLines(ctx context.Context, lines <-chan *tail.Line) {
+	defer close(r.DoneCh)
 
-	if config.ServerUrl != "" {
-		reader.serverUrl = config.ServerUrl
-	}
-
-	return reader
-}
-
-func (r *Reader) Start() {
-	if r.doneCh != nil {
-		return
-	}
-	t, err := tail.TailFile(r.path, tail.Config{Follow: true, ReOpen: true})
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	r.cancelFunc = cancel
-
-	done := make(chan struct{})
-	r.doneCh = done
-	defer close(done)
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case line, ok := <-lines:
+			if !ok {
+				r.Logger.Error("Line channel closed unexpectedly")
 				return
-			case line, ok := <-t.Lines:
-				if !ok {
-					log.Fatalf("[ERROR] line read: %s", err)
-					return
-				}
-				data := createPostData(r.path)
-				data.Data, data.Num = line.Text, line.Num
-				jsonData, err := json.Marshal(data)
-				if err != nil {
-					log.Printf("While processing data for Line %d in File %s an error occurred:\n%s", line.Num, r.path, err)
-				}
-				transmissionStatus, err := postData(r.serverUrl, jsonData)
-				if err != nil {
-					log.Println(err)
-				}
-				if transmissionStatus {
-					r.LastSendLine = data.Num
-				}
-				r.Lines = append(r.Lines, data)
+			}
+			if err := r.processLine(line); err != nil {
+				r.Logger.WithError(err).Error("Failed to process line")
 			}
 		}
-	}()
+	}
+}
+
+func (r *Reader) processLine(line *tail.Line) error {
+	data := &LineData{
+		FilePath:  r.Path,
+		Data:      line.Text,
+		Num:       line.Num,
+		Timestamp: time.Now().Unix(),
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal line data: %w", err)
+	}
+
+	if err := r.postData(jsonData); err != nil {
+		r.Lines = append(r.Lines, data)
+		return fmt.Errorf("failed to post data: %w", err)
+	}
+
+	r.LastSendLine = data.Num
+	return nil
+}
+
+func (r *Reader) postData(data []byte) error {
+	resp, err := http.Post(r.Config.ServerURL, "application/json", bytes.NewBuffer(data))
+	if err != nil {
+		return fmt.Errorf("HTTP post failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func (r *Reader) Stop() {
-	if r.doneCh == nil {
-		return
+	if r.CancelFunc != nil {
+		r.Logger.WithField("Path", r.Path).Info("Stopping Reader")
+		r.CancelFunc()
+		<-r.DoneCh
 	}
-	fmt.Printf("Stopping reader for File: %s\n", r.path)
-	r.cancelFunc()
-	<-r.doneCh
 }

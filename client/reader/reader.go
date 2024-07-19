@@ -59,21 +59,22 @@ func (r *Reader) Start(ctx context.Context) error {
 	r.CancelFunc = cancel
 	r.DoneCh = make(chan struct{})
 
-	go r.processLines(ctx, t.Lines)
+	go r.processLines(ctx, t)
 
 	r.Logger.WithField("Path", r.Path).Info("Starting Reader")
 
 	return nil
 }
 
-func (r *Reader) processLines(ctx context.Context, lines <-chan *tail.Line) {
+func (r *Reader) processLines(ctx context.Context, tail *tail.Tail) {
 	defer close(r.DoneCh)
 
 	for {
 		select {
 		case <-ctx.Done():
+			tail.Stop()
 			return
-		case line, ok := <-lines:
+		case line, ok := <-tail.Lines:
 			if !ok {
 				r.Logger.Error("Line channel closed unexpectedly")
 				return

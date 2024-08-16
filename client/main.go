@@ -42,7 +42,6 @@ func main() {
 
 	// Create DirectoryState
 	dir := directory.NewDirectoryState("./test/", &directory.Config{
-		DB:        cfg.DB,
 		ServerURL: fmt.Sprintf("http://%s:%d/test", cfg.ServerUrl, cfg.ServerPort),
 	}, logger)
 

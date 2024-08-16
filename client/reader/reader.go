@@ -4,7 +4,6 @@ package reader
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -33,7 +32,6 @@ type LineData struct {
 
 type Config struct {
 	ServerURL string
-	DB        *sql.DB
 }
 
 func New(path string, config *Config, logger *logrus.Logger) *Reader {

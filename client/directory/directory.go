@@ -3,7 +3,6 @@ package directory
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -28,7 +27,6 @@ type DirectoryState struct {
 }
 
 type Config struct {
-	DB        *sql.DB
 	ServerURL string
 }
 
@@ -109,7 +107,6 @@ func (d *DirectoryState) checkDirectory() error {
 func (d *DirectoryState) startReader(file string) error {
 	r := reader.New(file, &reader.Config{
 		ServerURL: d.Config.ServerURL,
-		DB:        d.Config.DB,
 	}, d.Logger)
 
 	if err := r.Start(context.Background()); err != nil {

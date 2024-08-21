@@ -6,23 +6,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log-forwarder-client/tail"
 	"net/http"
-	"time"
 
-	"github.com/nxadm/tail"
 	"github.com/sirupsen/logrus"
 )
 
 type Reader struct {
 	Path         string
+	ServerURL    string
 	CancelFunc   context.CancelFunc
 	DoneCh       chan struct{}
 	Lines        []*LineData
 	LastSendLine int
 	DBId         int
-	Config       *Config
 	Logger       *logrus.Logger
 }
+
 type LineData struct {
 	FilePath  string `json:"filePath"`
 	Data      string `json:"data"`
@@ -30,16 +30,32 @@ type LineData struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
-type Config struct {
-	ServerURL string
+type ReaderState struct {
+	Path         string
+	LastSendLine int
+	DBId         int
 }
 
-func New(path string, config *Config, logger *logrus.Logger) *Reader {
+func (r *Reader) GetState() ReaderState {
+	return ReaderState{
+		Path:         r.Path,
+		LastSendLine: r.LastSendLine,
+		DBId:         r.DBId,
+	}
+}
+
+func (r *Reader) SetState(state ReaderState) {
+	r.Path = state.Path
+	r.LastSendLine = state.LastSendLine
+	r.DBId = state.DBId
+}
+
+func New(path string, ServerURL string, logger *logrus.Logger) *Reader {
 	return &Reader{
-		Path:   path,
-		Lines:  []*LineData{},
-		Config: config,
-		Logger: logger,
+		Path:      path,
+		Lines:     []*LineData{},
+		ServerURL: ServerURL,
+		Logger:    logger,
 	}
 }
 
@@ -48,33 +64,33 @@ func (r *Reader) Start(ctx context.Context) error {
 		return fmt.Errorf("reader already started")
 	}
 
-	t, err := tail.TailFile(r.Path, tail.Config{Follow: true, ReOpen: true})
-	if err != nil {
-		return fmt.Errorf("failed to tail file: %w", err)
-	}
+	tailFile := tail.NewFileTail(r.Path, tail.TailConfig{
+		ReOpen: true,
+		Offset: int64(r.LastSendLine),
+	})
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx1, cancel := context.WithCancel(ctx)
+	t, err := tailFile.Start(ctx1)
+	if err != nil {
+		return fmt.Errorf("Coundnt start reader: %w", err)
+	}
 	r.CancelFunc = cancel
 	r.DoneCh = make(chan struct{})
 
-	go r.processLines(ctx, t)
-
 	r.Logger.WithField("Path", r.Path).Info("Starting Reader")
+
+	go r.processLines(t)
 
 	return nil
 }
 
-func (r *Reader) processLines(ctx context.Context, tail *tail.Tail) {
+func (r *Reader) processLines(tail <-chan tail.Line) {
 	defer close(r.DoneCh)
 
 	for {
 		select {
-		case <-ctx.Done():
-			tail.Stop()
-			return
-		case line, ok := <-tail.Lines:
+		case line, ok := <-tail:
 			if !ok {
-				r.Logger.Error("Line channel closed unexpectedly")
 				return
 			}
 			if err := r.processLine(line); err != nil {
@@ -84,12 +100,12 @@ func (r *Reader) processLines(ctx context.Context, tail *tail.Tail) {
 	}
 }
 
-func (r *Reader) processLine(line *tail.Line) error {
+func (r *Reader) processLine(line tail.Line) error {
 	data := &LineData{
 		FilePath:  r.Path,
-		Data:      line.Text,
-		Num:       line.Num,
-		Timestamp: time.Now().Unix(),
+		Data:      line.LineData,
+		Num:       int(line.LineNum),
+		Timestamp: line.Timestamp.Unix(),
 	}
 
 	jsonData, err := json.Marshal(data)
@@ -107,7 +123,7 @@ func (r *Reader) processLine(line *tail.Line) error {
 }
 
 func (r *Reader) postData(data []byte) error {
-	resp, err := http.Post(r.Config.ServerURL, "application/json", bytes.NewBuffer(data))
+	resp, err := http.Post(r.ServerURL, "application/json", bytes.NewBuffer(data))
 	if err != nil {
 		return fmt.Errorf("HTTP post failed: %w", err)
 	}

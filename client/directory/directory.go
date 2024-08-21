@@ -2,16 +2,18 @@
 package directory
 
 import (
+	"bufio"
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
-	"io/fs"
 	"log-forwarder-client/reader"
 	"os"
 	"path/filepath"
 	"slices"
 	"sync"
 	"time"
+
+	"go.etcd.io/bbolt"
 
 	"github.com/sirupsen/logrus"
 )
@@ -21,47 +23,33 @@ type DirectoryState struct {
 	Time           time.Time
 	RunningReaders map[string]*reader.Reader
 	DBId           int
-	Config         *Config
+	ServerURL      string
 	Logger         *logrus.Logger
 	mu             sync.Mutex
 }
 
-type Config struct {
-	ServerURL string
-}
-
-func NewDirectoryState(path string, config *Config, logger *logrus.Logger) *DirectoryState {
+func NewDirectoryState(path string, ServerURL string, logger *logrus.Logger) *DirectoryState {
 	return &DirectoryState{
 		Path:           path,
 		RunningReaders: make(map[string]*reader.Reader),
-		Config:         config,
+		ServerURL:      ServerURL,
 		Logger:         logger,
+		Time:           time.Now(),
 	}
 }
 
-func getDirContent(root string) ([]string, error) {
-	var files []string
-	err := filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			files = append(files, path)
-		}
-		return nil
-	})
-
+func getDirContent(glob string) ([]string, error) {
+	filepaths, err := filepath.Glob(glob)
 	if err != nil {
-		if errors.Is(err, os.ErrPermission) {
-			return nil, fmt.Errorf("permission denied accessing a directory: %w", err)
-		}
-		return nil, fmt.Errorf("error walking the path %s: %w", root, err)
 	}
-
-	return files, nil
+	return filepaths, nil
 }
 
 func (d *DirectoryState) Watch(ctx context.Context) error {
+	err := d.checkDirectory()
+	if err != nil {
+		d.Logger.WithError(err).WithField("Directory", d.Path).Error("Failed to check directory")
+	}
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -71,7 +59,7 @@ func (d *DirectoryState) Watch(ctx context.Context) error {
 			return ctx.Err()
 		case <-ticker.C:
 			if err := d.checkDirectory(); err != nil {
-				d.Logger.WithError(err).Error("Failed to check directory")
+				d.Logger.WithError(err).WithField("Directory", d.Path).Error("Failed to check directory")
 			}
 		}
 	}
@@ -105,9 +93,7 @@ func (d *DirectoryState) checkDirectory() error {
 }
 
 func (d *DirectoryState) startReader(file string) error {
-	r := reader.New(file, &reader.Config{
-		ServerURL: d.Config.ServerURL,
-	}, d.Logger)
+	r := reader.New(file, d.ServerURL, d.Logger)
 
 	if err := r.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start reader: %w", err)
@@ -123,4 +109,120 @@ func (d *DirectoryState) WaitForShutdown() {
 	for _, reader := range d.RunningReaders {
 		reader.Stop()
 	}
+}
+
+func (d *DirectoryState) SaveState(db *bbolt.DB) error {
+	return db.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte("DirectoryState"))
+		if err != nil {
+			return err
+		}
+
+		state := map[string]interface{}{
+			"Path": d.Path,
+			"Time": d.Time.Format(time.RFC3339),
+			"DBId": d.DBId,
+		}
+
+		// Save running readers' states
+		readers := make(map[string]reader.ReaderState)
+		for path, r := range d.RunningReaders {
+			readers[path] = r.GetState()
+		}
+		state["RunningReaders"] = readers
+
+		encoded, err := json.Marshal(state)
+		if err != nil {
+			return err
+		}
+
+		return b.Put([]byte("state"), encoded)
+	})
+}
+
+func (d *DirectoryState) LoadState(db *bbolt.DB, ctx context.Context) error {
+	return db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("DirectoryState"))
+		if b == nil {
+			return nil // No state saved yet
+		}
+
+		encoded := b.Get([]byte("state"))
+		if encoded == nil {
+			return nil // No state saved yet
+		}
+
+		var state map[string]interface{}
+		if err := json.Unmarshal(encoded, &state); err != nil {
+			return err
+		}
+
+		d.Path = state["Path"].(string)
+		if parsedTime, err := parseTime(state["Time"].(string)); err != nil {
+			d.Logger.WithField("Directory: ", d.Path).Error("Failed to parse Time: %w", err)
+		} else {
+			d.Time = parsedTime
+		}
+		d.DBId = int(state["DBId"].(float64))
+
+		// Load running readers' states
+		if readersRaw, ok := state["RunningReaders"].(map[string]interface{}); ok {
+			for path, readerStateRaw := range readersRaw {
+				if readerStateMap, ok := readerStateRaw.(map[string]interface{}); ok {
+					readerState := reader.ReaderState{
+						Path: path,
+					}
+					currentLines, err := countLines(path)
+					if err != nil {
+						return fmt.Errorf("Coundnt read current line count: %w", err)
+					}
+					if lastSendLine, ok := readerStateMap["LastSendLine"].(float64); ok {
+						if int(lastSendLine) > currentLines {
+							readerState.LastSendLine = int(lastSendLine)
+						} else {
+							fmt.Println("Resetting Line Count")
+							readerState.LastSendLine = 0
+						}
+					}
+					if dbID, ok := readerStateMap["DBId"].(float64); ok {
+						readerState.DBId = int(dbID)
+					}
+					r := reader.New(path, d.ServerURL, d.Logger)
+					r.SetState(readerState)
+					r.Start(ctx)
+					d.RunningReaders[path] = r
+				}
+			}
+		}
+
+		return nil
+	})
+}
+
+func parseTime(timeStr string) (time.Time, error) {
+	parsedTime, err := time.Parse(time.RFC3339, timeStr)
+	if err != nil {
+		return time.Now(), fmt.Errorf("failed to parse Time: %w", err)
+	}
+	return parsedTime, nil
+}
+
+func countLines(filePath string) (int, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	lines := 0
+	for scanner.Scan() {
+		lines++
+	}
+
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+
+	return lines, nil
 }

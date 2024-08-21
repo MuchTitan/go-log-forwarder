@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"log-forwarder-client/config"
 	"log-forwarder-client/directory"
 	"log-forwarder-client/utils"
 
 	"github.com/sirupsen/logrus"
+	"go.etcd.io/bbolt"
 )
 
 type LogOut interface {
@@ -39,16 +41,44 @@ func main() {
 
 	// Get configuration
 	cfg := config.Get()
+	serverUrl := fmt.Sprintf("http://%s:%d/test", cfg.ServerUrl, cfg.ServerPort)
 
+	// Open BBolt database
+	db, err := bbolt.Open("state.db", 0600, nil)
+	if err != nil {
+		logger.WithError(err).Fatal("Failed to open database")
+	}
+	defer db.Close()
 	// Create DirectoryState
-	dir := directory.NewDirectoryState("./test/", &directory.Config{
-		ServerURL: fmt.Sprintf("http://%s:%d/test", cfg.ServerUrl, cfg.ServerPort),
-	}, logger)
+	dir := directory.NewDirectoryState("./test/*.log", serverUrl, logger)
+
+	// Load state from database
+	if err := dir.LoadState(db, ctx); err != nil {
+		logger.WithError(err).Error("Failed to load state from database")
+		os.Exit(1)
+	}
 
 	// Start watching the directory
 	go func() {
 		if err := dir.Watch(ctx); err != nil {
 			logger.WithError(err).Error("Directory watching stopped unexpectedly")
+		}
+	}()
+
+	// Periodically save state (every 5 minutes)
+	go func() {
+		ticker := time.NewTicker(3 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := dir.SaveState(db); err != nil {
+					logger.WithError(err).Error("Failed to save state to database")
+				}
+			}
 		}
 	}()
 
@@ -62,6 +92,10 @@ func main() {
 
 	// Wait for all operations to finish (you might want to implement a WaitGroup in DirectoryState)
 	dir.WaitForShutdown()
+
+	if err := dir.SaveState(db); err != nil {
+		logger.WithError(err).Error("Failed to save final state to database")
+	}
 
 	logger.Info("Application shutdown complete")
 }

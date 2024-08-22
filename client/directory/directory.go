@@ -177,7 +177,7 @@ func (d *DirectoryState) LoadState(db *bbolt.DB, ctx context.Context) error {
 						return fmt.Errorf("Coundnt read current line count: %w", err)
 					}
 					if lastSendLine, ok := readerStateMap["LastSendLine"].(float64); ok {
-						if int(lastSendLine) > currentLines {
+						if int(lastSendLine) >= currentLines {
 							readerState.LastSendLine = int(lastSendLine)
 						} else {
 							fmt.Println("Resetting Line Count")

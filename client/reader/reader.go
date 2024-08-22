@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"log-forwarder-client/tail"
 	"net/http"
 
@@ -64,32 +65,34 @@ func (r *Reader) Start(ctx context.Context) error {
 		return fmt.Errorf("reader already started")
 	}
 
-	tailFile := tail.NewFileTail(r.Path, tail.TailConfig{
+	fileTail := tail.NewFileTail(r.Path, tail.TailConfig{
 		ReOpen: true,
 		Offset: int64(r.LastSendLine),
 	})
 
-	ctx1, cancel := context.WithCancel(ctx)
-	t, err := tailFile.Start(ctx1)
-	if err != nil {
-		return fmt.Errorf("Coundnt start reader: %w", err)
-	}
+	ctx, cancel := context.WithCancel(ctx)
 	r.CancelFunc = cancel
 	r.DoneCh = make(chan struct{})
 
 	r.Logger.WithField("Path", r.Path).Info("Starting Reader")
 
-	go r.processLines(t)
+	go r.processLines(ctx, fileTail)
 
 	return nil
 }
 
-func (r *Reader) processLines(tail <-chan tail.Line) {
-	defer close(r.DoneCh)
-
+func (r *Reader) processLines(ctx context.Context, tail *tail.File) {
+	t, err := tail.Start(ctx)
+	if err != nil {
+		log.Printf("Coundnt start tail for reader %s: %w", r.Path, err)
+	}
 	for {
 		select {
-		case line, ok := <-tail:
+		case <-ctx.Done():
+			tail.Stop()
+			close(r.DoneCh)
+			return
+		case line, ok := <-t:
 			if !ok {
 				return
 			}

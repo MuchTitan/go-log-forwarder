@@ -2,12 +2,11 @@
 package directory
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log-forwarder-client/reader"
-	"os"
+	"log-forwarder-client/utils"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -56,7 +55,7 @@ func (d *DirectoryState) Watch(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil
 		case <-ticker.C:
 			if err := d.checkDirectory(); err != nil {
 				d.Logger.WithError(err).WithField("Directory", d.Path).Error("Failed to check directory")
@@ -172,7 +171,7 @@ func (d *DirectoryState) LoadState(db *bbolt.DB, ctx context.Context) error {
 					readerState := reader.ReaderState{
 						Path: path,
 					}
-					currentLines, err := countLines(path)
+					currentLines, err := utils.CountLines(path)
 					if err != nil {
 						return fmt.Errorf("Coundnt read current line count: %w", err)
 					}
@@ -205,24 +204,4 @@ func parseTime(timeStr string) (time.Time, error) {
 		return time.Now(), fmt.Errorf("failed to parse Time: %w", err)
 	}
 	return parsedTime, nil
-}
-
-func countLines(filePath string) (int, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return 0, err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	lines := 0
-	for scanner.Scan() {
-		lines++
-	}
-
-	if err := scanner.Err(); err != nil {
-		return 0, err
-	}
-
-	return lines, nil
 }

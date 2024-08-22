@@ -23,6 +23,7 @@ type File struct {
 	fileReader  *bufio.Reader
 	path        string
 	lastLineNum int64
+	doneCh      chan struct{}
 	cancel      context.CancelFunc
 	reOpen      bool
 }
@@ -93,11 +94,22 @@ func (f *File) Start(ctx context.Context) (<-chan Line, error) {
 	f.file = file
 	f.fileReader = bufio.NewReader(f.file)
 
+	ctx, cancel := context.WithCancel(ctx)
+	f.cancel = cancel
+
 	lineChan := make(chan Line)
+	f.doneCh = make(chan struct{})
 
 	go f.tailFile(ctx, lineChan)
 
 	return lineChan, nil
+}
+
+func (f *File) Stop() {
+	if f.cancel != nil {
+		f.cancel()
+		<-f.doneCh
+	}
 }
 
 func (f *File) tailFile(ctx context.Context, lineChan chan<- Line) {
@@ -109,6 +121,7 @@ func (f *File) tailFile(ctx context.Context, lineChan chan<- Line) {
 	for {
 		select {
 		case <-ctx.Done():
+			close(f.doneCh)
 			return
 		default:
 			line, err := f.fileReader.ReadString('\n')

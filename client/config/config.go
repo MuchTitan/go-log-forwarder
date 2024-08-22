@@ -1,9 +1,7 @@
 package config
 
 import (
-	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -19,15 +17,6 @@ var (
 	cfg  *Config
 	once sync.Once
 )
-
-func OpenDB(file string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", file)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
-
-	return db, nil
-}
 
 func LoadConfig() *Config {
 	once.Do(func() {

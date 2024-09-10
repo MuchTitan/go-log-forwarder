@@ -84,7 +84,7 @@ func (r *Reader) Start(ctx context.Context) error {
 func (r *Reader) processLines(ctx context.Context, tail *tail.File) {
 	t, err := tail.Start(ctx)
 	if err != nil {
-		log.Printf("Coundnt start tail for reader %s: %w", r.Path, err)
+		log.Printf("Coundnt start tail for reader %s: %s", r.Path, err)
 	}
 	for {
 		select {

@@ -45,7 +45,7 @@ func getDirContent(glob string) ([]string, error) {
 }
 
 func (d *DirectoryState) Watch(ctx context.Context) error {
-	err := d.checkDirectory()
+	err := d.checkDirectory(ctx)
 	if err != nil {
 		d.Logger.WithError(err).WithField("Directory", d.Path).Error("Failed to check directory")
 	}
@@ -57,14 +57,14 @@ func (d *DirectoryState) Watch(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := d.checkDirectory(); err != nil {
+			if err := d.checkDirectory(ctx); err != nil {
 				d.Logger.WithError(err).WithField("Directory", d.Path).Error("Failed to check directory")
 			}
 		}
 	}
 }
 
-func (d *DirectoryState) checkDirectory() error {
+func (d *DirectoryState) checkDirectory(ctx context.Context) error {
 	files, err := getDirContent(d.Path)
 	if err != nil {
 		return fmt.Errorf("failed to get directory content: %w", err)
@@ -75,7 +75,7 @@ func (d *DirectoryState) checkDirectory() error {
 
 	for _, file := range files {
 		if _, exists := d.RunningReaders[file]; !exists {
-			if err := d.startReader(file); err != nil {
+			if err := d.startReader(ctx, file); err != nil {
 				d.Logger.WithError(err).WithField("file", file).Error("Failed to start reader")
 			}
 		}
@@ -91,10 +91,10 @@ func (d *DirectoryState) checkDirectory() error {
 	return nil
 }
 
-func (d *DirectoryState) startReader(file string) error {
+func (d *DirectoryState) startReader(ctx context.Context, file string) error {
 	r := reader.New(file, d.ServerURL, d.Logger)
 
-	if err := r.Start(context.Background()); err != nil {
+	if err := r.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start reader: %w", err)
 	}
 

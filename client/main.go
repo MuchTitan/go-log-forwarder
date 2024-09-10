@@ -65,7 +65,7 @@ func main() {
 		}
 	}()
 
-	// Periodically save state (every 5 minutes)
+	// Periodically save state (every 3 minutes)
 	go func() {
 		ticker := time.NewTicker(3 * time.Minute)
 		defer ticker.Stop()
@@ -86,11 +86,11 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
+	logger.Info("Application shutdown started")
 
 	// Cancel the context to stop all operations
 	cancel()
 
-	// Wait for all operations to finish (you might want to implement a WaitGroup in DirectoryState)
 	dir.WaitForShutdown()
 
 	if err := dir.SaveState(db); err != nil {

@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"log-forwarder-client/reader"
 	"log-forwarder-client/utils"
+	"log/slog"
 	"path/filepath"
 	"slices"
 	"sync"
 	"time"
 
 	"go.etcd.io/bbolt"
-
-	"github.com/sirupsen/logrus"
 )
 
 type DirectoryState struct {
@@ -23,11 +22,11 @@ type DirectoryState struct {
 	RunningReaders map[string]*reader.Reader
 	DBId           int
 	ServerURL      string
-	Logger         *logrus.Logger
+	Logger         *slog.Logger
 	mu             sync.Mutex
 }
 
-func NewDirectoryState(path string, ServerURL string, logger *logrus.Logger) *DirectoryState {
+func NewDirectoryState(path string, ServerURL string, logger *slog.Logger) *DirectoryState {
 	return &DirectoryState{
 		Path:           path,
 		RunningReaders: make(map[string]*reader.Reader),
@@ -37,9 +36,10 @@ func NewDirectoryState(path string, ServerURL string, logger *logrus.Logger) *Di
 	}
 }
 
-func getDirContent(glob string) ([]string, error) {
+func (d *DirectoryState) getDirContent(glob string) ([]string, error) {
 	filepaths, err := filepath.Glob(glob)
 	if err != nil {
+		return []string{}, err
 	}
 	return filepaths, nil
 }
@@ -47,7 +47,7 @@ func getDirContent(glob string) ([]string, error) {
 func (d *DirectoryState) Watch(ctx context.Context) error {
 	err := d.checkDirectory(ctx)
 	if err != nil {
-		d.Logger.WithError(err).WithField("Directory", d.Path).Error("Failed to check directory")
+		d.Logger.Error("Failed to check directory", "error", err, "path", d.Path)
 	}
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -58,14 +58,22 @@ func (d *DirectoryState) Watch(ctx context.Context) error {
 			return nil
 		case <-ticker.C:
 			if err := d.checkDirectory(ctx); err != nil {
-				d.Logger.WithError(err).WithField("Directory", d.Path).Error("Failed to check directory")
+				d.Logger.Error("Failed to check directory", "error", err, "path", d.Path)
 			}
 		}
 	}
 }
 
+func getKeysFromMap[T any | *reader.Reader](input map[string]T) []string {
+	out := []string{}
+	for key := range input {
+		out = append(out, key)
+	}
+	return out
+}
+
 func (d *DirectoryState) checkDirectory(ctx context.Context) error {
-	files, err := getDirContent(d.Path)
+	files, err := d.getDirContent(d.Path)
 	if err != nil {
 		return fmt.Errorf("failed to get directory content: %w", err)
 	}
@@ -76,10 +84,12 @@ func (d *DirectoryState) checkDirectory(ctx context.Context) error {
 	for _, file := range files {
 		if _, exists := d.RunningReaders[file]; !exists {
 			if err := d.startReader(ctx, file); err != nil {
-				d.Logger.WithError(err).WithField("file", file).Error("Failed to start reader")
+				d.Logger.Error("Failed to start reader", "error", err, "path", d.Path)
 			}
 		}
 	}
+
+	d.Logger.Debug("running readers", "readers", getKeysFromMap(d.RunningReaders))
 
 	for file, r := range d.RunningReaders {
 		if !slices.Contains(files, file) {
@@ -102,7 +112,7 @@ func (d *DirectoryState) startReader(ctx context.Context, file string) error {
 	return nil
 }
 
-func (d *DirectoryState) WaitForShutdown() {
+func (d *DirectoryState) Stop() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for _, reader := range d.RunningReaders {
@@ -158,7 +168,7 @@ func (d *DirectoryState) LoadState(db *bbolt.DB, ctx context.Context) error {
 
 		d.Path = state["Path"].(string)
 		if parsedTime, err := parseTime(state["Time"].(string)); err != nil {
-			d.Logger.WithField("Directory: ", d.Path).Error("Failed to parse Time: %w", err)
+			d.Logger.Error("Failed to parse Time", "error", err)
 		} else {
 			d.Time = parsedTime
 		}
@@ -193,7 +203,6 @@ func (d *DirectoryState) LoadState(db *bbolt.DB, ctx context.Context) error {
 				}
 			}
 		}
-
 		return nil
 	})
 }

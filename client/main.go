@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,7 +14,6 @@ import (
 	"log-forwarder-client/directory"
 	"log-forwarder-client/utils"
 
-	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
 )
 
@@ -35,18 +35,20 @@ func main() {
 
 	// Setup logger
 	var logOut LogOut = utils.NewMultiWriter(os.Stdout, logFile)
-	logger := logrus.New()
-	logger.SetOutput(logOut)
-	logger.SetLevel(logrus.InfoLevel)
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelDebug, // Set the log level to Debug
+	}
+	logger := slog.New(slog.NewJSONHandler(logOut, opts))
 
 	// Get configuration
 	cfg := config.Get()
 	serverUrl := fmt.Sprintf("http://%s:%d/test", cfg.ServerUrl, cfg.ServerPort)
+	logger.Info("Starting application")
 
 	// Open BBolt database
 	db, err := bbolt.Open("state.db", 0600, nil)
 	if err != nil {
-		logger.WithError(err).Fatal("Failed to open database")
+		logger.Error("Failed to open database", "error", err)
 	}
 	defer db.Close()
 	// Create DirectoryState
@@ -54,14 +56,14 @@ func main() {
 
 	// Load state from database
 	if err := dir.LoadState(db, ctx); err != nil {
-		logger.WithError(err).Error("Failed to load state from database")
+		logger.Error("Failed to load state from database", "error", err)
 		os.Exit(1)
 	}
 
 	// Start watching the directory
 	go func() {
 		if err := dir.Watch(ctx); err != nil {
-			logger.WithError(err).Error("Directory watching stopped unexpectedly")
+			logger.Error("Directory watching stopped unexpectedly", "error", err)
 		}
 	}()
 
@@ -76,7 +78,7 @@ func main() {
 				return
 			case <-ticker.C:
 				if err := dir.SaveState(db); err != nil {
-					logger.WithError(err).Error("Failed to save state to database")
+					logger.Error("Failed to save state to database periodically", "error", err)
 				}
 			}
 		}
@@ -91,10 +93,10 @@ func main() {
 	// Cancel the context to stop all operations
 	cancel()
 
-	dir.WaitForShutdown()
+	dir.Stop()
 
 	if err := dir.SaveState(db); err != nil {
-		logger.WithError(err).Error("Failed to save final state to database")
+		logger.Error("Failed to save final state to database", "error", err)
 	}
 
 	logger.Info("Application shutdown complete")

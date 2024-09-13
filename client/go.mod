@@ -3,7 +3,6 @@ module log-forwarder-client
 go 1.22.0
 
 require (
-	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.9.0
 	go.etcd.io/bbolt v1.3.10
 )

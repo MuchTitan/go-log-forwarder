@@ -8,9 +8,8 @@ import (
 	"fmt"
 	"log"
 	"log-forwarder-client/tail"
+	"log/slog"
 	"net/http"
-
-	"github.com/sirupsen/logrus"
 )
 
 type Reader struct {
@@ -21,7 +20,7 @@ type Reader struct {
 	Lines        []*LineData
 	LastSendLine int
 	DBId         int
-	Logger       *logrus.Logger
+	Logger       *slog.Logger
 }
 
 type LineData struct {
@@ -51,7 +50,7 @@ func (r *Reader) SetState(state ReaderState) {
 	r.DBId = state.DBId
 }
 
-func New(path string, ServerURL string, logger *logrus.Logger) *Reader {
+func New(path string, ServerURL string, logger *slog.Logger) *Reader {
 	return &Reader{
 		Path:      path,
 		Lines:     []*LineData{},
@@ -68,13 +67,13 @@ func (r *Reader) Start(ctx context.Context) error {
 	fileTail := tail.NewFileTail(r.Path, tail.TailConfig{
 		ReOpen: true,
 		Offset: int64(r.LastSendLine),
-	})
+	}, r.Logger)
 
 	ctx, cancel := context.WithCancel(ctx)
 	r.CancelFunc = cancel
 	r.DoneCh = make(chan struct{})
 
-	r.Logger.WithField("Path", r.Path).Info("Starting Reader")
+	r.Logger.Info("Starting Reader", "path", r.Path)
 
 	go r.processLines(ctx, fileTail)
 
@@ -97,7 +96,7 @@ func (r *Reader) processLines(ctx context.Context, tail *tail.File) {
 				return
 			}
 			if err := r.processLine(line); err != nil {
-				r.Logger.WithError(err).Error("Failed to process line")
+				r.Logger.Error("Failed to process line", "error", err)
 			}
 		}
 	}
@@ -141,7 +140,7 @@ func (r *Reader) postData(data []byte) error {
 
 func (r *Reader) Stop() {
 	if r.CancelFunc != nil {
-		r.Logger.WithField("Path", r.Path).Info("Stopping Reader")
+		r.Logger.Info("Stopping Reader", "path", r.Path)
 		r.CancelFunc()
 		<-r.DoneCh
 	}

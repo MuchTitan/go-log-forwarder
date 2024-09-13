@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type File struct {
 	doneCh      chan struct{}
 	cancel      context.CancelFunc
 	reOpen      bool
+	Logger      *slog.Logger
 }
 
 // TailConfig holds configuration for file tailing
@@ -35,11 +37,12 @@ type TailConfig struct {
 }
 
 // NewFileTail creates a new File instance
-func NewFileTail(path string, config TailConfig) *File {
+func NewFileTail(path string, config TailConfig, logger *slog.Logger) *File {
 	return &File{
 		path:        path,
 		lastLineNum: config.Offset,
 		reOpen:      config.ReOpen,
+		Logger:      logger,
 	}
 }
 
@@ -69,7 +72,7 @@ func (f *File) skipLines() {
 }
 
 func (f *File) ReOpen() {
-	fmt.Printf("Trying to ReOpen File: %s\n", f.path)
+	f.Logger.Info("Trying to ReOpen File", "path", f.path)
 	for {
 		file, err := openFile(f.path)
 		if err == nil {
@@ -132,11 +135,14 @@ func (f *File) tailFile(ctx context.Context, lineChan chan<- Line) {
 				return
 			}
 			f.lastLineNum++
-			lineChan <- Line{
+			data := Line{
 				LineNum:   f.lastLineNum,
 				LineData:  strings.TrimSuffix(line, "\n"),
 				Timestamp: time.Now(),
 			}
+
+			lineChan <- data
+			f.Logger.Debug("sending line data", "data", data, "path", f.path)
 		}
 	}
 }

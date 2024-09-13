@@ -11,6 +11,7 @@ type Config struct {
 	ServerUrl  string `json:"serverUrl"`
 	ServerPort int    `json:"serverPort"`
 	DbFile     string `json:"dbFile"`
+	LogLevel   string `json:"LogLevel"`
 }
 
 var (
@@ -34,6 +35,20 @@ func LoadConfig() *Config {
 		}
 	})
 	return cfg
+}
+
+func (c *Config) GetLogLevel() int {
+	switch c.LogLevel {
+	case "DEBUG":
+		return -4
+	case "WARNING":
+		return 4
+	case "ERROR":
+		return 8
+	default:
+		// Default LogLevel Info
+		return 0
+	}
 }
 
 func Get() *Config {

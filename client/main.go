@@ -33,15 +33,15 @@ func main() {
 	}
 	defer logFile.Close()
 
+	cfg := config.Get()
 	// Setup logger
-	var logOut LogOut = utils.NewMultiWriter(os.Stdout, logFile)
+	var logOut LogOut = utils.NewMultiWriter(logFile)
 	opts := &slog.HandlerOptions{
-		Level: slog.LevelDebug, // Set the log level to Debug
+		Level: slog.Level(cfg.GetLogLevel()), // Set the log level
 	}
 	logger := slog.New(slog.NewJSONHandler(logOut, opts))
 
 	// Get configuration
-	cfg := config.Get()
 	serverUrl := fmt.Sprintf("http://%s:%d/test", cfg.ServerUrl, cfg.ServerPort)
 	logger.Info("Starting application")
 

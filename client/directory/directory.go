@@ -85,13 +85,15 @@ func removeIndexFromSlice[T any](slice []T, index int) []T {
 }
 
 func (d *DirectoryState) retryLineData() {
-	for i, data := range d.LinesFailedToSend {
-		err := d.postData(data)
-		if err != nil {
-			d.Logger.Error("[Retry] coundnt send line", "error", err)
-			d.LinesFailedToSend = append(d.LinesFailedToSend, data)
-		} else {
-			d.LinesFailedToSend = removeIndexFromSlice(d.LinesFailedToSend, i)
+	for {
+		for i, data := range d.LinesFailedToSend {
+			err := d.postData(data)
+			if err != nil {
+				d.Logger.Error("[Retry] coundnt send line", "error", err)
+				d.LinesFailedToSend = append(d.LinesFailedToSend, data)
+			} else {
+				d.LinesFailedToSend = removeIndexFromSlice(d.LinesFailedToSend, i)
+			}
 		}
 		time.Sleep(time.Second * 3)
 	}
@@ -106,6 +108,7 @@ func (d *DirectoryState) Watch(ctx context.Context) error {
 	defer ticker.Stop()
 
 	go d.lineDataHandler(ctx)
+	go d.retryLineData()
 	for {
 		select {
 		case <-ctx.Done():
@@ -256,12 +259,9 @@ func (d *DirectoryState) LoadState(db *bbolt.DB, ctx context.Context) error {
 						if int(lastSendLine) >= currentLines {
 							readerState.LastSendLine = int(lastSendLine)
 						} else {
-							fmt.Println("Resetting Line Count")
+							d.Logger.Info("Resetting Line Count")
 							readerState.LastSendLine = 0
 						}
-					}
-					if dbID, ok := readerStateMap["DBId"].(float64); ok {
-						readerState.DBId = int(dbID)
 					}
 					r := reader.New(path, d.ServerURL, d.Logger, d.sendChan)
 					r.SetState(readerState)

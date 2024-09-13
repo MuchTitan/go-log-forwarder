@@ -71,17 +71,22 @@ func (f *File) skipLines() {
 	}
 }
 
-func (f *File) ReOpen() {
+func (f *File) ReOpen(ctx context.Context) {
 	f.Logger.Info("Trying to ReOpen File", "path", f.path)
 	for {
-		file, err := openFile(f.path)
-		if err == nil {
-			f.file.Close()
-			f.file = file
-			f.fileReader = bufio.NewReader(f.file)
-			f.lastLineNum = 0
-			fmt.Printf("Reopened File: %s\n", f.path)
+		select {
+		case <-ctx.Done():
 			return
+		default:
+			file, err := openFile(f.path)
+			if err == nil {
+				f.file.Close()
+				f.file = file
+				f.fileReader = bufio.NewReader(f.file)
+				f.lastLineNum = 0
+				fmt.Printf("Reopened File: %s\n", f.path)
+				return
+			}
 		}
 		time.Sleep(time.Second)
 	}
@@ -129,7 +134,7 @@ func (f *File) tailFile(ctx context.Context, lineChan chan<- Line) {
 		default:
 			line, err := f.fileReader.ReadString('\n')
 			if err != nil {
-				if f.handleError(err) {
+				if f.handleError(ctx, err) {
 					continue
 				}
 				return
@@ -142,14 +147,14 @@ func (f *File) tailFile(ctx context.Context, lineChan chan<- Line) {
 			}
 
 			lineChan <- data
-			f.Logger.Debug("sending line data", "data", data, "path", f.path)
+			f.Logger.Debug("sending line data", "path", f.path, "data", data)
 		}
 	}
 }
 
-func (f *File) handleError(err error) bool {
+func (f *File) handleError(ctx context.Context, err error) bool {
 	if f.reOpen && !fileExists(f.path) {
-		f.ReOpen()
+		f.ReOpen(ctx)
 		return true
 	}
 	if err == io.EOF {

@@ -29,7 +29,6 @@ type LineData struct {
 type ReaderState struct {
 	Path         string
 	LastSendLine int
-	DBId         int
 }
 
 func (r *Reader) GetState() ReaderState {

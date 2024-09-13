@@ -36,7 +36,7 @@ func main() {
 	// Setup logger
 	var logOut LogOut = utils.NewMultiWriter(os.Stdout, logFile)
 	opts := &slog.HandlerOptions{
-		Level: slog.LevelInfo, // Set the log level to Debug
+		Level: slog.LevelDebug, // Set the log level to Debug
 	}
 	logger := slog.New(slog.NewJSONHandler(logOut, opts))
 

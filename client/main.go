@@ -35,7 +35,7 @@ func main() {
 
 	cfg := config.Get()
 	// Setup logger
-	var logOut LogOut = utils.NewMultiWriter(logFile)
+	var logOut LogOut = utils.NewMultiWriter(os.Stdout, logFile)
 	opts := &slog.HandlerOptions{
 		Level: slog.Level(cfg.GetLogLevel()), // Set the log level
 	}

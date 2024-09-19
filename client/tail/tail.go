@@ -13,6 +13,7 @@ import (
 
 // Line represents a line from the tailed file
 type Line struct {
+	FilePath  string
 	LineNum   int64
 	LineData  string
 	Timestamp time.Time
@@ -25,9 +26,10 @@ type File struct {
 	path        string
 	lastLineNum int64
 	doneCh      chan struct{}
+	sendCh      chan Line
 	cancel      context.CancelFunc
 	reOpen      bool
-	Logger      *slog.Logger
+	logger      *slog.Logger
 }
 
 // TailConfig holds configuration for file tailing
@@ -37,18 +39,27 @@ type TailConfig struct {
 }
 
 // NewFileTail creates a new File instance
-func NewFileTail(path string, config TailConfig, logger *slog.Logger) *File {
+func NewFileTail(path string, logger *slog.Logger, sendCh chan Line, config TailConfig) *File {
 	return &File{
 		path:        path,
 		lastLineNum: config.Offset,
 		reOpen:      config.ReOpen,
-		Logger:      logger,
+		logger:      logger,
+		sendCh:      sendCh,
 	}
 }
 
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func (f *File) GetState() int64 {
+	return f.lastLineNum
+}
+
+func (f *File) UpdateOffset(newOffset int64) {
+	f.lastLineNum = newOffset
 }
 
 func openFile(path string) (*os.File, error) {
@@ -72,7 +83,7 @@ func (f *File) skipLines() {
 }
 
 func (f *File) ReOpen(ctx context.Context) {
-	f.Logger.Info("Trying to ReOpen File", "path", f.path)
+	f.logger.Info("Trying to ReOpen File", "path", f.path)
 	for {
 		select {
 		case <-ctx.Done():
@@ -86,6 +97,8 @@ func (f *File) ReOpen(ctx context.Context) {
 				f.lastLineNum = 0
 				fmt.Printf("Reopened File: %s\n", f.path)
 				return
+			} else {
+				f.logger.Debug("Coundnt ReOpen file waiting one second", "path", f.path)
 			}
 		}
 		time.Sleep(time.Second)
@@ -93,10 +106,10 @@ func (f *File) ReOpen(ctx context.Context) {
 }
 
 // Start starts tailing the file and returns a channel with Line structs
-func (f *File) Start(ctx context.Context) (<-chan Line, error) {
+func (f *File) Start(ctx context.Context) error {
 	file, err := openFile(f.path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	f.file = file
@@ -105,12 +118,11 @@ func (f *File) Start(ctx context.Context) (<-chan Line, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	f.cancel = cancel
 
-	lineChan := make(chan Line)
 	f.doneCh = make(chan struct{})
 
-	go f.tailFile(ctx, lineChan)
+	go f.tailFile(ctx, f.sendCh)
 
-	return lineChan, nil
+	return nil
 }
 
 func (f *File) Stop() {
@@ -121,7 +133,6 @@ func (f *File) Stop() {
 }
 
 func (f *File) tailFile(ctx context.Context, lineChan chan<- Line) {
-	defer close(lineChan)
 	defer f.file.Close()
 
 	f.skipLines()
@@ -141,13 +152,14 @@ func (f *File) tailFile(ctx context.Context, lineChan chan<- Line) {
 			}
 			f.lastLineNum++
 			data := Line{
+				FilePath:  f.path,
 				LineNum:   f.lastLineNum,
 				LineData:  strings.TrimSuffix(line, "\n"),
 				Timestamp: time.Now(),
 			}
 
 			lineChan <- data
-			f.Logger.Debug("sending line data", "path", f.path, "data", data)
+			f.logger.Debug("sending line data", "path", f.path, "data", data)
 		}
 	}
 }

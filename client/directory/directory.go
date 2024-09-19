@@ -6,13 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log-forwarder-client/reader"
+	"log-forwarder-client/tail"
 	"log-forwarder-client/utils"
 	"log/slog"
 	"net/http"
 	"path/filepath"
 	"slices"
-	"sync"
 	"time"
 
 	"go.etcd.io/bbolt"
@@ -21,29 +20,38 @@ import (
 type DirectoryState struct {
 	Path              string
 	Time              time.Time
-	RunningReaders    map[string]*reader.Reader
+	RunningTails      map[string]*tail.File
 	DBId              int
 	ServerURL         string
 	Logger            *slog.Logger
-	mu                sync.Mutex
-	sendChan          chan []byte
+	sendChan          chan tail.Line
 	LinesFailedToSend [][]byte
+}
+
+type postData struct {
+	FilePath  string `json:"filePath"`
+	Data      string `json:"data"`
+	Num       int    `json:"lineNumber"`
+	Timestamp int64  `json:"timestamp"`
 }
 
 func NewDirectoryState(path string, ServerURL string, logger *slog.Logger) *DirectoryState {
 	return &DirectoryState{
 		Path:              path,
-		RunningReaders:    make(map[string]*reader.Reader),
 		ServerURL:         ServerURL,
 		Logger:            logger,
+		RunningTails:      make(map[string]*tail.File),
 		Time:              time.Now(),
-		sendChan:          make(chan []byte),
+		sendChan:          make(chan tail.Line),
 		LinesFailedToSend: [][]byte{},
 	}
 }
 
 func (d *DirectoryState) getDirContent(glob string) []string {
-	filepaths, _ := filepath.Glob(glob)
+	filepaths, err := filepath.Glob(glob)
+	if err != nil {
+		return []string{}
+	}
 	return filepaths
 }
 
@@ -61,12 +69,33 @@ func (d *DirectoryState) postData(data []byte) error {
 	return nil
 }
 
+func encodeLineToBytes(line tail.Line) ([]byte, error) {
+	// Create postData from Line
+	pd := postData{
+		FilePath:  line.FilePath,
+		Data:      line.LineData,
+		Num:       int(line.LineNum),
+		Timestamp: line.Timestamp.Unix(), // Convert time.Time to Unix timestamp (int64)
+	}
+
+	// Encode postData to JSON
+	jsonData, err := json.Marshal(pd)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	return jsonData, nil
+}
+
 func (d *DirectoryState) lineDataHandler(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case data := <-d.sendChan:
+		case lineData := <-d.sendChan:
+			// TODO: Handle the potential encoding error
+			data, _ := encodeLineToBytes(lineData)
+			d.Logger.Debug("linedata", "data", lineData)
 			err := d.postData(data)
 			if err != nil {
 				d.Logger.Error("[First Send] coundnt send line", "error", err)
@@ -78,7 +107,8 @@ func (d *DirectoryState) lineDataHandler(ctx context.Context) {
 
 func removeIndexFromSlice[T any](slice []T, index int) []T {
 	if index < 0 || index >= len(slice) {
-		return slice // Return the original slice if index is out of bounds
+		// Return the original slice if index is out of bounds
+		return slice
 	}
 
 	return append(slice[:index], slice[index+1:]...)
@@ -89,7 +119,7 @@ func (d *DirectoryState) retryLineData() {
 		for i, data := range d.LinesFailedToSend {
 			err := d.postData(data)
 			if err != nil {
-				d.Logger.Error("[Retry] coundnt send line", "error", err)
+				d.Logger.Debug("[Retry] coundnt send line", "error", err)
 				d.LinesFailedToSend = append(d.LinesFailedToSend, data)
 			} else {
 				d.LinesFailedToSend = removeIndexFromSlice(d.LinesFailedToSend, i)
@@ -121,7 +151,7 @@ func (d *DirectoryState) Watch(ctx context.Context) error {
 	}
 }
 
-func getKeysFromMap[T any | *reader.Reader](input map[string]T) []string {
+func getKeysFromMap[T any | *tail.File](input map[string]T) []string {
 	out := []string{}
 	for key := range input {
 		out = append(out, key)
@@ -132,45 +162,44 @@ func getKeysFromMap[T any | *reader.Reader](input map[string]T) []string {
 func (d *DirectoryState) checkDirectory(ctx context.Context) error {
 	files := d.getDirContent(d.Path)
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
 	for _, file := range files {
-		if _, exists := d.RunningReaders[file]; !exists {
-			if err := d.startReader(ctx, file); err != nil {
-				d.Logger.Error("Failed to start reader", "error", err, "path", d.Path)
+		if _, exists := d.RunningTails[file]; !exists {
+			if err := d.startTail(ctx, file); err != nil {
+				d.Logger.Error("Failed to start tail", "error", err, "path", d.Path)
 			}
 		}
 	}
 
-	d.Logger.Debug("running readers", "readers", getKeysFromMap(d.RunningReaders))
+	d.Logger.Debug("running readers", "tails", getKeysFromMap(d.RunningTails))
 
-	for file, r := range d.RunningReaders {
+	for file, r := range d.RunningTails {
 		if !slices.Contains(files, file) {
 			r.Stop()
-			delete(d.RunningReaders, file)
+			delete(d.RunningTails, file)
 		}
 	}
 
 	return nil
 }
 
-func (d *DirectoryState) startReader(ctx context.Context, file string) error {
-	r := reader.New(file, d.ServerURL, d.Logger, d.sendChan)
+func (d *DirectoryState) startTail(ctx context.Context, path string) error {
+	tail := tail.NewFileTail(path, d.Logger, d.sendChan, tail.TailConfig{
+		ReOpen: true,
+		Offset: 0,
+	})
 
-	if err := r.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start reader: %w", err)
+	err := tail.Start(ctx)
+	if err != nil {
+		return fmt.Errorf("Coundnt start tail for %s: %w", path, err)
 	}
 
-	d.RunningReaders[file] = r
+	d.RunningTails[path] = tail
 	return nil
 }
 
 func (d *DirectoryState) Stop() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	for _, reader := range d.RunningReaders {
-		reader.Stop()
+	for _, tail := range d.RunningTails {
+		tail.Stop()
 	}
 }
 
@@ -189,11 +218,11 @@ func (d *DirectoryState) SaveState(db *bbolt.DB) error {
 		}
 
 		// Save running readers' states
-		readers := make(map[string]reader.ReaderState)
-		for path, r := range d.RunningReaders {
-			readers[path] = r.GetState()
+		tails := make(map[string]int64)
+		for path, r := range d.RunningTails {
+			tails[path] = r.GetState()
 		}
-		state["RunningReaders"] = readers
+		state["RunningTails"] = tails
 
 		encoded, err := json.Marshal(state)
 		if err != nil {
@@ -240,37 +269,42 @@ func (d *DirectoryState) LoadState(db *bbolt.DB, ctx context.Context) error {
 					linesFailedToSend = append(linesFailedToSend, lineBytes)
 				}
 			}
-			// Now assign the converted value to d.LinesFailedToSend
+			// assign the converted value to d.LinesFailedToSend
 			d.LinesFailedToSend = linesFailedToSend
 		}
 
 		// Load running readers' states
-		if readersRaw, ok := state["RunningReaders"].(map[string]interface{}); ok {
-			for path, readerStateRaw := range readersRaw {
-				if readerStateMap, ok := readerStateRaw.(map[string]interface{}); ok {
-					readerState := reader.ReaderState{
-						Path: path,
-					}
-					currentLines, err := utils.CountLines(path)
-					if err != nil {
-						return fmt.Errorf("Coundnt read current line count: %w", err)
-					}
-					if lastSendLine, ok := readerStateMap["LastSendLine"].(float64); ok {
-						if int(lastSendLine) >= currentLines {
-							readerState.LastSendLine = int(lastSendLine)
-						} else {
-							d.Logger.Info("Resetting Line Count")
-							readerState.LastSendLine = 0
-						}
-					}
-					r := reader.New(path, d.ServerURL, d.Logger, d.sendChan)
-					r.SetState(readerState)
-					r.Start(ctx)
-					d.RunningReaders[path] = r
+		if tailsRaw, ok := state["RunningTails"].(map[string]interface{}); ok {
+			for path, lastSendLineRaw := range tailsRaw {
+				// check the current line count of the file path
+				currentLines, err := utils.CountLines(path)
+				if err != nil {
+					return fmt.Errorf("Coundnt read current line count: %w", err)
 				}
+				// create a new tail instance with offset 0 (Resetting Line Count)
+				tail := tail.NewFileTail(path, d.Logger, d.sendChan, tail.TailConfig{
+					ReOpen: true,
+					Offset: 0,
+				})
+
+				if lastSendLine, ok := lastSendLineRaw.(int64); ok {
+					if int(lastSendLine) >= currentLines {
+						tail.UpdateOffset(lastSendLine)
+					} else {
+						d.Logger.Info("Resetting Line Count")
+					}
+				}
+
+				//TODO: implement better error handling
+				err = tail.Start(ctx)
+				if err != nil {
+					d.Logger.Error("Coundnt start tailing from saved state", "path", path)
+					return nil
+				}
+				d.RunningTails[path] = tail
 			}
 		}
-		d.Logger.Debug("loading state", "state", state)
+		d.Logger.Info("loading state", "state", state)
 		return nil
 	})
 }

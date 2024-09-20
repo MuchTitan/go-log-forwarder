@@ -128,8 +128,6 @@ func TestTailOnFile(t *testing.T) {
 		tmpFile, _ = os.Create(tmpFileName)
 		defer os.Remove(tmpFileName)
 
-		fmt.Println("removing first tmpFile")
-
 		assert.NoError(t, writeTestContent(tmpFile, content), "Failed to write content2")
 
 		for i := 0; i < len(content); i++ {

@@ -98,38 +98,31 @@ func (d *DirectoryState) lineDataHandler(ctx context.Context) {
 			d.Logger.Debug("linedata", "data", lineData)
 			err := d.postData(data)
 			if err != nil {
-				d.Logger.Error("[First Send] coundnt send line", "error", err)
+				d.Logger.Debug("[First Send] coundnt send line", "error", err)
 				d.LinesFailedToSend = append(d.LinesFailedToSend, data)
 			}
 		}
 	}
 }
 
-func removeIndexFromSlice[T any](slice []T, index int) []T {
-	if index < 0 || index >= len(slice) {
-		// Return the original slice if index is out of bounds
-		return slice
-	}
-
-	return append(slice[:index], slice[index+1:]...)
-}
-
 func (d *DirectoryState) retryLineData() {
 	for {
+		if len(d.LinesFailedToSend) > 15 {
+			d.Logger.Warn("There are Lines that coundnt be send", "amount", len(d.LinesFailedToSend))
+		}
 		for i, data := range d.LinesFailedToSend {
 			err := d.postData(data)
 			if err != nil {
 				d.Logger.Debug("[Retry] coundnt send line", "error", err)
-				d.LinesFailedToSend = append(d.LinesFailedToSend, data)
 			} else {
-				d.LinesFailedToSend = removeIndexFromSlice(d.LinesFailedToSend, i)
+				d.LinesFailedToSend = utils.RemoveIndexFromSlice(d.LinesFailedToSend, i)
 			}
 		}
 		time.Sleep(time.Second * 3)
 	}
 }
 
-func (d *DirectoryState) Watch(ctx context.Context) error {
+func (d *DirectoryState) Watch(ctx context.Context) {
 	err := d.checkDirectory(ctx)
 	if err != nil {
 		d.Logger.Error("Failed to check directory", "error", err, "path", d.Path)
@@ -142,7 +135,7 @@ func (d *DirectoryState) Watch(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case <-ticker.C:
 			if err := d.checkDirectory(ctx); err != nil {
 				d.Logger.Error("Failed to check directory", "error", err, "path", d.Path)
@@ -184,8 +177,8 @@ func (d *DirectoryState) checkDirectory(ctx context.Context) error {
 
 func (d *DirectoryState) startTail(ctx context.Context, path string) error {
 	tail := tail.NewFileTail(path, d.Logger, d.sendChan, tail.TailConfig{
-		ReOpen: true,
-		Offset: 0,
+		ReOpenValue:  true,
+		LastSendLine: 0,
 	})
 
 	err := tail.Start(ctx)
@@ -283,13 +276,13 @@ func (d *DirectoryState) LoadState(db *bbolt.DB, ctx context.Context) error {
 				}
 				// create a new tail instance with offset 0 (Resetting Line Count)
 				tail := tail.NewFileTail(path, d.Logger, d.sendChan, tail.TailConfig{
-					ReOpen: true,
-					Offset: 0,
+					ReOpenValue:  true,
+					LastSendLine: 0,
 				})
 
-				if lastSendLine, ok := lastSendLineRaw.(int64); ok {
+				if lastSendLine, ok := lastSendLineRaw.(float64); ok {
 					if int(lastSendLine) >= currentLines {
-						tail.UpdateOffset(lastSendLine)
+						tail.UpdateLastSendLine(int64(lastSendLine))
 					} else {
 						d.Logger.Info("Resetting Line Count")
 					}
@@ -299,12 +292,12 @@ func (d *DirectoryState) LoadState(db *bbolt.DB, ctx context.Context) error {
 				err = tail.Start(ctx)
 				if err != nil {
 					d.Logger.Error("Coundnt start tailing from saved state", "path", path)
-					return nil
+					continue
 				}
 				d.RunningTails[path] = tail
 			}
 		}
-		d.Logger.Info("loading state", "state", state)
+		d.Logger.Debug("loading state", "state", state)
 		return nil
 	})
 }

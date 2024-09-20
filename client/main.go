@@ -49,6 +49,7 @@ func main() {
 	db, err := bbolt.Open("state.db", 0600, nil)
 	if err != nil {
 		logger.Error("Failed to open database", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 	// Create DirectoryState
@@ -61,11 +62,7 @@ func main() {
 	}
 
 	// Start watching the directory
-	go func() {
-		if err := dir.Watch(ctx); err != nil {
-			logger.Error("Directory watching stopped unexpectedly", "error", err)
-		}
-	}()
+	go dir.Watch(ctx)
 
 	// Periodically save state (every 3 minutes)
 	go func() {
@@ -89,9 +86,6 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 	logger.Info("Application shutdown started")
-
-	// Cancel the context to stop all operations
-	cancel()
 
 	dir.Stop()
 

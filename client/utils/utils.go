@@ -43,3 +43,12 @@ func CountLines(filePath string) (int, error) {
 
 	return lines, nil
 }
+
+func RemoveIndexFromSlice[T any](slice []T, index int) []T {
+	if index < 0 || index >= len(slice) {
+		// Return the original slice if index is out of bounds
+		return slice
+	}
+
+	return append(slice[:index], slice[index+1:]...)
+}

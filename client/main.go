@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,7 +23,6 @@ type LogOut interface {
 }
 
 func main() {
-	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -52,17 +52,19 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+
 	// Create DirectoryState
-	dir := directory.NewDirectoryState("./test/*.log", serverUrl, logger)
+	wg := &sync.WaitGroup{}
+	dir := directory.NewDirectoryState("./test/*.log", serverUrl, logger, wg, ctx)
 
 	// Load state from database
-	if err := dir.LoadState(db, ctx); err != nil {
+	if err := dir.LoadState(db); err != nil {
 		logger.Error("Failed to load state from database", "error", err)
 		os.Exit(1)
 	}
 
 	// Start watching the directory
-	go dir.Watch(ctx)
+	go dir.Watch()
 
 	// Periodically save state (every 3 minutes)
 	go func() {
@@ -87,7 +89,23 @@ func main() {
 	<-sigCh
 	logger.Info("Application shutdown started")
 
-	dir.Stop()
+	cancel()
+
+	// Create a channel to signal completion
+	done := make(chan struct{})
+
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	// Wait for completion or timeout
+	select {
+	case <-done:
+		logger.Info("All goroutines completed successfully")
+	case <-time.After(30 * time.Second):
+		logger.Warn("Shutdown timed out, some goroutines may not have completed")
+	}
 
 	if err := dir.SaveState(db); err != nil {
 		logger.Error("Failed to save final state to database", "error", err)

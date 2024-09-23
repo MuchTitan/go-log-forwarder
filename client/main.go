@@ -4,15 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
-
 	"log-forwarder-client/config"
 	"log-forwarder-client/directory"
 	"log-forwarder-client/utils"
+	"log/slog"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 
 	"go.etcd.io/bbolt"
 )
@@ -21,51 +21,84 @@ type LogOut interface {
 	io.Writer
 }
 
-func main() {
-	// Setup context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+var (
+	runningDirectorys []*directory.DirectoryState
+	wg                *sync.WaitGroup
+	parentCtx         context.Context
+	cfg               *config.Config
+	logger            *slog.Logger
+	db                *bbolt.DB
+)
 
+func setupLogger() *os.File {
+	// Open log file
 	logFile, err := os.OpenFile("application.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		fmt.Printf("Failed to open log file: %v\n", err)
 		os.Exit(1)
 	}
-	defer logFile.Close()
 
 	cfg := config.Get()
 	// Setup logger
 	var logOut LogOut = utils.NewMultiWriter(os.Stdout, logFile)
 	opts := &slog.HandlerOptions{
-		Level: slog.Level(cfg.GetLogLevel()), // Set the log level
+		Level: slog.LevelInfo,
 	}
-	logger := slog.New(slog.NewJSONHandler(logOut, opts))
+	logger = slog.New(slog.NewJSONHandler(logOut, opts))
+	return logFile
+}
 
-	// Get configuration
-	serverUrl := fmt.Sprintf("http://%s:%d/test", cfg.ServerUrl, cfg.ServerPort)
-	logger.Info("Starting application")
-
-	// Open BBolt database
-	db, err := bbolt.Open("state.db", 0600, nil)
-	if err != nil {
-		logger.Error("Failed to open database", "error", err)
-	}
-	defer db.Close()
-	// Create DirectoryState
-	dir := directory.NewDirectoryState("./test/*.log", serverUrl, logger)
+func startNewDirectory(path string, parentCtx context.Context) *directory.DirectoryState {
+	serverUrl := fmt.Sprintf("http://%s:%d", cfg.ServerUrl, cfg.ServerPort)
+	dir := directory.NewDirectoryState(path, serverUrl, logger, wg, parentCtx)
 
 	// Load state from database
-	if err := dir.LoadState(db, ctx); err != nil {
+	if err := dir.LoadState(db); err != nil {
 		logger.Error("Failed to load state from database", "error", err)
 		os.Exit(1)
 	}
 
-	// Start watching the directory
-	go func() {
-		if err := dir.Watch(ctx); err != nil {
-			logger.Error("Directory watching stopped unexpectedly", "error", err)
+	go dir.Watch()
+	runningDirectorys = append(runningDirectorys, dir)
+	return dir
+}
+
+func openDB() {
+	var err error
+	db, err = bbolt.Open(cfg.DbFile, 0600, nil)
+	if err != nil {
+		logger.Error("Failed to open database", "error", err)
+		os.Exit(1)
+	}
+}
+
+func saveToDB() {
+	for _, dir := range runningDirectorys {
+		if err := dir.SaveState(db); err != nil {
+			logger.Error("Failed to save state to database", "error", err)
 		}
-	}()
+	}
+}
+
+func main() {
+	parentCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	wg = &sync.WaitGroup{}
+
+	// start logger
+	logFile := setupLogger()
+	defer logFile.Close()
+
+	// Get configuration
+	cfg = config.Get()
+	logger.Info("Starting Log forwarder")
+
+	// Open BBolt database
+	openDB()
+	defer db.Close()
+
+	startNewDirectory("./test/*.log", parentCtx)
+	startNewDirectory("/var/log/*", parentCtx)
 
 	// Periodically save state (every 3 minutes)
 	go func() {
@@ -74,12 +107,10 @@ func main() {
 
 		for {
 			select {
-			case <-ctx.Done():
+			case <-parentCtx.Done():
 				return
 			case <-ticker.C:
-				if err := dir.SaveState(db); err != nil {
-					logger.Error("Failed to save state to database periodically", "error", err)
-				}
+				saveToDB()
 			}
 		}
 	}()
@@ -88,16 +119,26 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
-	logger.Info("Application shutdown started")
+	logger.Info("Log forwarder shutdown started")
 
-	// Cancel the context to stop all operations
 	cancel()
 
-	dir.Stop()
+	done := make(chan struct{})
 
-	if err := dir.SaveState(db); err != nil {
-		logger.Error("Failed to save final state to database", "error", err)
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	// Wait for completion or timeout
+	select {
+	case <-done:
+		logger.Info("All goroutines completed successfully")
+	case <-time.After(120 * time.Second):
+		logger.Warn("Shutdown timed out, some goroutines may not have completed")
 	}
 
-	logger.Info("Application shutdown complete")
+	saveToDB()
+
+	logger.Info("Log forwarder shutdown complete")
 }

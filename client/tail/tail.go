@@ -5,161 +5,202 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log-forwarder-client/utils"
 	"log/slog"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
-// Line represents a line from the tailed file
-type Line struct {
-	LineNum   int64
-	LineData  string
-	Timestamp time.Time
+// TailFile holds the file and necessary channels for tailing
+type TailFile struct {
+	filePath   string
+	logger     *slog.Logger
+	file       *os.File
+	watcher    *fsnotify.Watcher
+	ctx        context.Context
+	cancel     context.CancelFunc
+	doneCh     chan struct{}
+	sendCh     chan LineData
+	offset     int64 // Holds the current file offset
+	startLine  int64 // The line number to start reading from
+	lineNumber int64 // Tracks the current line number
 }
 
-// File is a struct to manage file tailing
-type File struct {
-	file        *os.File
-	fileReader  *bufio.Reader
-	path        string
-	lastLineNum int64
-	doneCh      chan struct{}
-	cancel      context.CancelFunc
-	reOpen      bool
-	Logger      *slog.Logger
+type TailFileState struct {
+	LastSendLine int64
+	Checksum     []byte
+	InodeNumber  uint64
 }
 
-// TailConfig holds configuration for file tailing
-type TailConfig struct {
-	Offset int64
-	ReOpen bool
+type LineData struct {
+	Filepath string
+	LineData string
+	LineNum  int64
+	Time     time.Time
 }
 
-// NewFileTail creates a new File instance
-func NewFileTail(path string, config TailConfig, logger *slog.Logger) *File {
-	return &File{
-		path:        path,
-		lastLineNum: config.Offset,
-		reOpen:      config.ReOpen,
-		Logger:      logger,
-	}
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-func openFile(path string) (*os.File, error) {
-	file, err := os.Open(path)
+// NewTailFile creates a new TailFile instance starting from a specific line
+func NewTailFile(filePath string, logger *slog.Logger, sendCh chan LineData, startLine int64, parentCtx context.Context) (*TailFile, error) {
+	// Open the file
+	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		file.Close()
-		return nil, fmt.Errorf("failed to seek file: %w", err)
-	}
-	return file, nil
-}
 
-func (f *File) skipLines() {
-	for currentLine := int64(0); currentLine < f.lastLineNum; currentLine++ {
-		if _, err := f.fileReader.ReadString('\n'); err != nil {
-			break
-		}
-	}
-}
-
-func (f *File) ReOpen(ctx context.Context) {
-	f.Logger.Info("Trying to ReOpen File", "path", f.path)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			file, err := openFile(f.path)
-			if err == nil {
-				f.file.Close()
-				f.file = file
-				f.fileReader = bufio.NewReader(f.file)
-				f.lastLineNum = 0
-				fmt.Printf("Reopened File: %s\n", f.path)
-				return
-			}
-		}
-		time.Sleep(time.Second)
-	}
-}
-
-// Start starts tailing the file and returns a channel with Line structs
-func (f *File) Start(ctx context.Context) (<-chan Line, error) {
-	file, err := openFile(f.path)
+	// Initialize fsnotify watcher
+	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to initialize watcher: %w", err)
 	}
 
-	f.file = file
-	f.fileReader = bufio.NewReader(f.file)
+	// Add the file to the watcher
+	err = watcher.Add(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to watch file: %w", err)
+	}
+	// Create ctx for this FileTail
+	ctx, cancel := context.WithCancel(parentCtx)
 
-	ctx, cancel := context.WithCancel(ctx)
-	f.cancel = cancel
-
-	lineChan := make(chan Line)
-	f.doneCh = make(chan struct{})
-
-	go f.tailFile(ctx, lineChan)
-
-	return lineChan, nil
+	return &TailFile{
+		filePath:   filePath,
+		file:       file,
+		logger:     logger,
+		watcher:    watcher,
+		doneCh:     make(chan struct{}),
+		sendCh:     sendCh,
+		ctx:        ctx,
+		cancel:     cancel,
+		startLine:  startLine,
+		lineNumber: 0,
+	}, nil
 }
 
-func (f *File) Stop() {
-	if f.cancel != nil {
-		f.cancel()
-		<-f.doneCh
+func (tf *TailFile) createLineData(data string) LineData {
+	return LineData{
+		Filepath: tf.filePath,
+		LineData: strings.TrimSpace(data),
+		LineNum:  tf.lineNumber,
+		Time:     time.Now(),
 	}
 }
 
-func (f *File) tailFile(ctx context.Context, lineChan chan<- Line) {
-	defer close(lineChan)
-	defer f.file.Close()
+func (tf *TailFile) GetState() (TailFileState, error) {
+	state := TailFileState{
+		LastSendLine: tf.lineNumber,
+	}
+	var err error
+	state.InodeNumber, err = utils.GetInodeNumber(tf.filePath)
+	if err != nil {
+		return state, err
+	}
 
-	f.skipLines()
+	state.Checksum, err = utils.CreateChecksumForFirstThreeLines(tf.filePath)
+	if err != nil {
+		return state, err
+	}
+
+	return state, nil
+}
+
+// Start begins tailing the file from the specified line
+func (tf *TailFile) Start() {
+	tf.logger.Debug("Starting file tail", "path", tf.filePath)
+	go tf.watchFile()
+}
+
+// Stop stops the file tailing and closes resources
+func (tf *TailFile) Stop() {
+	tf.watcher.Close()
+	tf.file.Close()
+	if tf.ctx != nil {
+		tf.cancel()
+		<-tf.doneCh
+	}
+	tf.logger.Debug("Stopping file tail", "path", tf.filePath)
+}
+
+// watchFile monitors for changes using fsnotify
+func (tf *TailFile) watchFile() {
+	// Start by reading all existing lines up to the target line
+	tf.readExistingLines()
 
 	for {
 		select {
-		case <-ctx.Done():
-			close(f.doneCh)
+		case <-tf.ctx.Done():
+			close(tf.doneCh)
 			return
-		default:
-			line, err := f.fileReader.ReadString('\n')
-			if err != nil {
-				if f.handleError(ctx, err) {
-					continue
-				}
-				return
+		case event := <-tf.watcher.Events:
+			if event.Op&fsnotify.Write == fsnotify.Write {
+				tf.readNewLines()
 			}
-			f.lastLineNum++
-			data := Line{
-				LineNum:   f.lastLineNum,
-				LineData:  strings.TrimSuffix(line, "\n"),
-				Timestamp: time.Now(),
+		case err := <-tf.watcher.Errors:
+			if err == nil {
+				continue
 			}
-
-			lineChan <- data
-			f.Logger.Debug("sending line data", "path", f.path, "data", data)
+			tf.logger.Error("Watcher error", "error", err, "path", tf.filePath)
 		}
 	}
 }
 
-func (f *File) handleError(ctx context.Context, err error) bool {
-	if f.reOpen && !fileExists(f.path) {
-		f.ReOpen(ctx)
-		return true
+func (tf *TailFile) readExistingLines() {
+	_, err := tf.file.Seek(0, io.SeekStart)
+	if err != nil {
+		tf.logger.Error("Error seeking in file", "error", err, "path", tf.filePath)
+		return
 	}
-	if err == io.EOF {
-		time.Sleep(time.Second)
-		return true
+
+	reader := bufio.NewReader(tf.file)
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err != io.EOF {
+				tf.logger.Error("Error reading from file", "error", err)
+			}
+			currentOffset, _ := tf.file.Seek(0, io.SeekCurrent)
+			tf.offset = currentOffset
+			return
+		}
+		tf.lineNumber++
+		if tf.lineNumber > tf.startLine {
+			select {
+			case <-tf.ctx.Done():
+				return
+			case tf.sendCh <- tf.createLineData(line):
+				// Line sent successfully
+			}
+		}
 	}
-	return false
+}
+
+func (tf *TailFile) readNewLines() {
+	_, err := tf.file.Seek(tf.offset, io.SeekStart)
+	if err != nil {
+		tf.logger.Error("Error seeking in file", "error", err, "path", tf.filePath)
+		return
+	}
+
+	reader := bufio.NewReader(tf.file)
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err != io.EOF {
+				tf.logger.Error("Error reading from file", "error", err)
+			}
+			currentOffset, _ := tf.file.Seek(0, io.SeekCurrent)
+			tf.offset = currentOffset
+			return
+		}
+		tf.lineNumber++
+		select {
+		case <-tf.ctx.Done():
+			return
+		case tf.sendCh <- tf.createLineData(line):
+			// Line sent successfully
+		}
+	}
 }

@@ -6,49 +6,81 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log-forwarder-client/reader"
+	"log-forwarder-client/tail"
 	"log-forwarder-client/utils"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"sync"
 	"time"
-
-	"go.etcd.io/bbolt"
 )
 
 type DirectoryState struct {
-	Path              string
-	Time              time.Time
-	RunningReaders    map[string]*reader.Reader
-	DBId              int
-	ServerURL         string
-	Logger            *slog.Logger
-	mu                sync.Mutex
-	sendChan          chan []byte
-	LinesFailedToSend [][]byte
+	path              string
+	time              time.Time
+	runningTails      map[string]*tail.TailFile
+	dbID              int
+	serverURL         string
+	logger            *slog.Logger
+	sendChan          chan tail.LineData // chan for all writes from the file tails
+	ctx               context.Context
+	waitGroup         *sync.WaitGroup
+	linesFailedToSend [][]byte // Array of lines that didnt get send due to HTTP Errors
 }
 
-func NewDirectoryState(path string, ServerURL string, logger *slog.Logger) *DirectoryState {
+type postData struct {
+	FilePath  string `json:"filePath"`
+	Data      string `json:"data"`
+	Num       int    `json:"lineNumber"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+func NewDirectoryState(path string, ServerURL string, logger *slog.Logger, wg *sync.WaitGroup, ctx context.Context) *DirectoryState {
 	return &DirectoryState{
-		Path:              path,
-		RunningReaders:    make(map[string]*reader.Reader),
-		ServerURL:         ServerURL,
-		Logger:            logger,
-		Time:              time.Now(),
-		sendChan:          make(chan []byte),
-		LinesFailedToSend: [][]byte{},
+		path:              path,
+		serverURL:         ServerURL,
+		logger:            logger,
+		runningTails:      make(map[string]*tail.TailFile),
+		time:              time.Now(),
+		sendChan:          make(chan tail.LineData),
+		waitGroup:         wg,
+		ctx:               ctx,
+		linesFailedToSend: [][]byte{},
 	}
 }
 
 func (d *DirectoryState) getDirContent(glob string) []string {
-	filepaths, _ := filepath.Glob(glob)
+	filepathsFromGlob, err := filepath.Glob(glob)
+	if err != nil {
+		return []string{}
+	}
+
+	filepaths := []string{}
+	for _, filepath := range filepathsFromGlob {
+		fileInfo, err := os.Stat(filepath)
+		if err != nil {
+			d.logger.Error("Coundnt retrieve fileinfo while getting directory content", "error", err, "path", filepath)
+			continue
+		}
+		// If filepath is dir dont add to return array
+		if fileInfo.IsDir() {
+			continue
+		}
+		// If File is not readable dont add to return array
+		if _, err := os.Open(filepath); err != nil {
+			continue
+		}
+
+		filepaths = append(filepaths, filepath)
+	}
+
 	return filepaths
 }
 
 func (d *DirectoryState) postData(data []byte) error {
-	resp, err := http.Post(d.ServerURL, "application/json", bytes.NewBuffer(data))
+	resp, err := http.Post(d.serverURL, "application/json", bytes.NewBuffer(data))
 	if err != nil {
 		return fmt.Errorf("HTTP post failed: %w", err)
 	}
@@ -61,67 +93,84 @@ func (d *DirectoryState) postData(data []byte) error {
 	return nil
 }
 
-func (d *DirectoryState) lineDataHandler(ctx context.Context) {
+func encodeLineToBytes(line tail.LineData) ([]byte, error) {
+	// Create postData from Line
+	pd := postData{
+		FilePath:  line.Filepath,
+		Data:      line.LineData,
+		Num:       int(line.LineNum),
+		Timestamp: line.Time.Unix(), // Convert time.Time to Unix timestamp (int64)
+	}
+
+	// Encode postData to JSON
+	jsonData, err := json.Marshal(pd)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	return jsonData, nil
+}
+
+func (d *DirectoryState) lineDataHandler() {
 	for {
 		select {
-		case <-ctx.Done():
+		case <-d.ctx.Done():
 			return
-		case data := <-d.sendChan:
+		case lineData := <-d.sendChan:
+			// TODO: Handle the potential encoding error
+			data, _ := encodeLineToBytes(lineData)
 			err := d.postData(data)
 			if err != nil {
-				d.Logger.Error("[First Send] coundnt send line", "error", err)
-				d.LinesFailedToSend = append(d.LinesFailedToSend, data)
+				d.logger.Debug("[First Send] coundnt send line", "error", err)
+				d.linesFailedToSend = append(d.linesFailedToSend, data)
 			}
 		}
 	}
 }
 
-func removeIndexFromSlice[T any](slice []T, index int) []T {
-	if index < 0 || index >= len(slice) {
-		return slice // Return the original slice if index is out of bounds
-	}
-
-	return append(slice[:index], slice[index+1:]...)
-}
-
 func (d *DirectoryState) retryLineData() {
 	for {
-		for i, data := range d.LinesFailedToSend {
+		if len(d.linesFailedToSend) > 15 {
+			d.logger.Warn("There are Lines that coundnt be send", "amount", len(d.linesFailedToSend))
+		}
+		for i, data := range d.linesFailedToSend {
 			err := d.postData(data)
 			if err != nil {
-				d.Logger.Error("[Retry] coundnt send line", "error", err)
-				d.LinesFailedToSend = append(d.LinesFailedToSend, data)
+				d.logger.Debug("[Retry] coundnt send line", "error", err)
 			} else {
-				d.LinesFailedToSend = removeIndexFromSlice(d.LinesFailedToSend, i)
+				d.linesFailedToSend = utils.RemoveIndexFromSlice(d.linesFailedToSend, i)
 			}
 		}
 		time.Sleep(time.Second * 3)
 	}
 }
 
-func (d *DirectoryState) Watch(ctx context.Context) error {
-	err := d.checkDirectory(ctx)
+func (d *DirectoryState) Watch() {
+	err := d.checkDirectory()
 	if err != nil {
-		d.Logger.Error("Failed to check directory", "error", err, "path", d.Path)
+		d.logger.Error("Failed to check directory", "error", err, "path", d.path)
 	}
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	go d.lineDataHandler(ctx)
+	go d.lineDataHandler()
 	go d.retryLineData()
+	d.waitGroup.Add(1)
+	defer d.waitGroup.Done()
 	for {
 		select {
-		case <-ctx.Done():
-			return nil
+		case <-d.ctx.Done():
+			d.Stop()
+			return
 		case <-ticker.C:
-			if err := d.checkDirectory(ctx); err != nil {
-				d.Logger.Error("Failed to check directory", "error", err, "path", d.Path)
+			if err := d.checkDirectory(); err != nil {
+				d.logger.Error("Failed to check directory", "error", err, "path", d.path)
 			}
 		}
 	}
 }
 
-func getKeysFromMap[T any | *reader.Reader](input map[string]T) []string {
+func getKeysFromMap[T any | *tail.TailFile](input map[string]T) []string {
 	out := []string{}
 	for key := range input {
 		out = append(out, key)
@@ -129,150 +178,46 @@ func getKeysFromMap[T any | *reader.Reader](input map[string]T) []string {
 	return out
 }
 
-func (d *DirectoryState) checkDirectory(ctx context.Context) error {
-	files := d.getDirContent(d.Path)
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
+func (d *DirectoryState) checkDirectory() error {
+	files := d.getDirContent(d.path)
 
 	for _, file := range files {
-		if _, exists := d.RunningReaders[file]; !exists {
-			if err := d.startReader(ctx, file); err != nil {
-				d.Logger.Error("Failed to start reader", "error", err, "path", d.Path)
+		if _, exists := d.runningTails[file]; !exists {
+			if err := d.startTail(file); err != nil {
+				d.logger.Error("Failed to start tail", "error", err, "path", d.path)
 			}
 		}
 	}
 
-	d.Logger.Debug("running readers", "readers", getKeysFromMap(d.RunningReaders))
+	d.logger.Debug("running file tails", "tails", getKeysFromMap(d.runningTails))
 
-	for file, r := range d.RunningReaders {
+	for file, tail := range d.runningTails {
 		if !slices.Contains(files, file) {
-			r.Stop()
-			delete(d.RunningReaders, file)
+			tail.Stop()
+			delete(d.runningTails, file)
 		}
 	}
 
 	return nil
 }
 
-func (d *DirectoryState) startReader(ctx context.Context, file string) error {
-	r := reader.New(file, d.ServerURL, d.Logger, d.sendChan)
-
-	if err := r.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start reader: %w", err)
+func (d *DirectoryState) startTail(path string) error {
+	tail, err := tail.NewTailFile(path, d.logger, d.sendChan, 0, d.ctx)
+	if err != nil {
+		return err
 	}
 
-	d.RunningReaders[file] = r
+	tail.Start()
+
+	d.runningTails[path] = tail
 	return nil
 }
 
 func (d *DirectoryState) Stop() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	for _, reader := range d.RunningReaders {
-		reader.Stop()
+	for _, tail := range d.runningTails {
+		tail.Stop()
 	}
-}
-
-func (d *DirectoryState) SaveState(db *bbolt.DB) error {
-	return db.Update(func(tx *bbolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte("DirectoryState"))
-		if err != nil {
-			return err
-		}
-
-		state := map[string]interface{}{
-			"Path":              d.Path,
-			"Time":              d.Time.Format(time.RFC3339),
-			"DBId":              d.DBId,
-			"LinesFailedToSend": d.LinesFailedToSend,
-		}
-
-		// Save running readers' states
-		readers := make(map[string]reader.ReaderState)
-		for path, r := range d.RunningReaders {
-			readers[path] = r.GetState()
-		}
-		state["RunningReaders"] = readers
-
-		encoded, err := json.Marshal(state)
-		if err != nil {
-			return err
-		}
-
-		d.Logger.Debug("saving state", "state", state)
-
-		return b.Put([]byte("state"), encoded)
-	})
-}
-
-func (d *DirectoryState) LoadState(db *bbolt.DB, ctx context.Context) error {
-	return db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("DirectoryState"))
-		if b == nil {
-			return nil // No state saved yet
-		}
-
-		encoded := b.Get([]byte("state"))
-		if encoded == nil {
-			return nil // No state saved yet
-		}
-
-		var state map[string]interface{}
-		if err := json.Unmarshal(encoded, &state); err != nil {
-			return err
-		}
-
-		d.Path = state["Path"].(string)
-		if parsedTime, err := parseTime(state["Time"].(string)); err != nil {
-			d.Logger.Error("Failed to parse Time", "error", err)
-			panic(err)
-		} else {
-			d.Time = parsedTime
-		}
-		d.DBId = int(state["DBId"].(float64))
-		// Safely check if "LinesFailedToSend" exists and is a non-empty slice
-		if lines, ok := state["LinesFailedToSend"].([]interface{}); ok {
-			// Convert to [][]byte
-			var linesFailedToSend [][]byte
-			for _, line := range lines {
-				if lineBytes, ok := line.([]byte); ok {
-					linesFailedToSend = append(linesFailedToSend, lineBytes)
-				}
-			}
-			// Now assign the converted value to d.LinesFailedToSend
-			d.LinesFailedToSend = linesFailedToSend
-		}
-
-		// Load running readers' states
-		if readersRaw, ok := state["RunningReaders"].(map[string]interface{}); ok {
-			for path, readerStateRaw := range readersRaw {
-				if readerStateMap, ok := readerStateRaw.(map[string]interface{}); ok {
-					readerState := reader.ReaderState{
-						Path: path,
-					}
-					currentLines, err := utils.CountLines(path)
-					if err != nil {
-						return fmt.Errorf("Coundnt read current line count: %w", err)
-					}
-					if lastSendLine, ok := readerStateMap["LastSendLine"].(float64); ok {
-						if int(lastSendLine) >= currentLines {
-							readerState.LastSendLine = int(lastSendLine)
-						} else {
-							d.Logger.Info("Resetting Line Count")
-							readerState.LastSendLine = 0
-						}
-					}
-					r := reader.New(path, d.ServerURL, d.Logger, d.sendChan)
-					r.SetState(readerState)
-					r.Start(ctx)
-					d.RunningReaders[path] = r
-				}
-			}
-		}
-		d.Logger.Debug("loading state", "state", state)
-		return nil
-	})
+	close(d.sendChan)
 }
 
 func parseTime(timeStr string) (time.Time, error) {

@@ -3,6 +3,7 @@ package directory
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log-forwarder-client/tail"
 	"log-forwarder-client/utils"
 	"slices"
@@ -13,7 +14,7 @@ import (
 
 func (d *DirectoryState) SaveState(db *bbolt.DB) error {
 	return db.Update(func(tx *bbolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte("DirectoryState"))
+		b, err := tx.CreateBucketIfNotExists([]byte(d.createBucketName()))
 		if err != nil {
 			return err
 		}
@@ -50,7 +51,7 @@ func (d *DirectoryState) SaveState(db *bbolt.DB) error {
 
 func (d *DirectoryState) LoadState(db *bbolt.DB) error {
 	return db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("DirectoryState"))
+		b := tx.Bucket([]byte(d.createBucketName()))
 		if b == nil {
 			return nil // No state saved yet
 		}
@@ -66,12 +67,14 @@ func (d *DirectoryState) LoadState(db *bbolt.DB) error {
 		}
 
 		d.path = state["Path"].(string)
+
 		if parsedTime, err := parseTime(state["Time"].(string)); err != nil {
 			d.logger.Error("Failed to parse Time", "error", err)
 			panic(err)
 		} else {
 			d.time = parsedTime
 		}
+
 		d.dbID = int(state["DBId"].(float64))
 		// Safely check if "LinesFailedToSend" exists and is a non-empty slice
 		if lines, ok := state["LinesFailedToSend"].([]interface{}); ok {
@@ -166,4 +169,8 @@ func (d *DirectoryState) parseTailsFromDB(state map[string]interface{}) map[stri
 		decodedFileTails[filePath] = tailState
 	}
 	return decodedFileTails
+}
+
+func (d *DirectoryState) createBucketName() string {
+	return fmt.Sprintf("%s-%s", d.path, d.serverURL)
 }

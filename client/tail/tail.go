@@ -107,19 +107,19 @@ func (tf *TailFile) GetState() (TailFileState, error) {
 
 // Start begins tailing the file from the specified line
 func (tf *TailFile) Start() {
-	tf.logger.Info("Starting file tail", "path", tf.filePath)
+	tf.logger.Debug("Starting file tail", "path", tf.filePath)
 	go tf.watchFile()
 }
 
 // Stop stops the file tailing and closes resources
 func (tf *TailFile) Stop() {
-	tf.logger.Info("Stopping file tail", "path", tf.filePath)
 	tf.watcher.Close()
 	tf.file.Close()
 	if tf.ctx != nil {
 		tf.cancel()
 		<-tf.doneCh
 	}
+	tf.logger.Debug("Stopping file tail", "path", tf.filePath)
 }
 
 // watchFile monitors for changes using fsnotify

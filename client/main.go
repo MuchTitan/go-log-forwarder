@@ -4,16 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log-forwarder-client/config"
+	"log-forwarder-client/directory"
+	"log-forwarder-client/utils"
 	"log/slog"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
-
-	"log-forwarder-client/config"
-	"log-forwarder-client/directory"
-	"log-forwarder-client/utils"
 
 	"go.etcd.io/bbolt"
 )
@@ -42,7 +41,7 @@ func main() {
 
 	// Get configuration
 	cfg := config.Get()
-	serverUrl := fmt.Sprintf("http://%s:%d/test", cfg.ServerUrl, cfg.ServerPort)
+	serverUrl := fmt.Sprintf("http://%s:%d", cfg.ServerUrl, cfg.ServerPort)
 	logger.Info("Starting application")
 
 	// Open BBolt database
@@ -55,7 +54,7 @@ func main() {
 
 	// Create DirectoryState
 	wg := &sync.WaitGroup{}
-	dir := directory.NewDirectoryState("./test/*.log", serverUrl, logger, wg, ctx)
+	dir := directory.NewDirectoryState("/var/log/*", serverUrl, logger, wg, ctx)
 
 	// Load state from database
 	if err := dir.LoadState(db); err != nil {
@@ -103,7 +102,7 @@ func main() {
 	select {
 	case <-done:
 		logger.Info("All goroutines completed successfully")
-	case <-time.After(30 * time.Second):
+	case <-time.After(120 * time.Second):
 		logger.Warn("Shutdown timed out, some goroutines may not have completed")
 	}
 

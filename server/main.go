@@ -6,13 +6,13 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func main(){
-  app := fiber.New()
+func main() {
+	app := fiber.New()
 
-  app.Post("/test", func(c *fiber.Ctx) error {
-    fmt.Println(string(c.Body()))
-    return nil
-  })
+	app.Post("/", func(c *fiber.Ctx) error {
+		fmt.Println(string(c.Body()))
+		return nil
+	})
 
-  app.Listen(":8000")
+	app.Listen(":8000")
 }

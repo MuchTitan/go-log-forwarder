@@ -10,6 +10,7 @@ import (
 	"log-forwarder-client/utils"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -51,10 +52,30 @@ func NewDirectoryState(path string, ServerURL string, logger *slog.Logger, wg *s
 }
 
 func (d *DirectoryState) getDirContent(glob string) []string {
-	filepaths, err := filepath.Glob(glob)
+	filepathsFromGlob, err := filepath.Glob(glob)
 	if err != nil {
 		return []string{}
 	}
+
+	filepaths := []string{}
+	for _, filepath := range filepathsFromGlob {
+		fileInfo, err := os.Stat(filepath)
+		if err != nil {
+			d.logger.Error("Coundnt retrieve fileinfo while getting directory content", "error", err, "path", filepath)
+			continue
+		}
+		// If filepath is dir dont add to return array
+		if fileInfo.IsDir() {
+			continue
+		}
+		// If File is not readable dont add to return array
+		if _, err := os.Open(filepath); err != nil {
+			continue
+		}
+
+		filepaths = append(filepaths, filepath)
+	}
+
 	return filepaths
 }
 

@@ -38,7 +38,6 @@ func setupLogger() *os.File {
 		os.Exit(1)
 	}
 
-	cfg := config.Get()
 	// Setup logger
 	var logOut LogOut = utils.NewMultiWriter(os.Stdout, logFile)
 	opts := &slog.HandlerOptions{
@@ -85,12 +84,13 @@ func main() {
 	defer cancel()
 	wg = &sync.WaitGroup{}
 
+	// Get configuration
+	cfg = config.Get()
+
 	// start logger
 	logFile := setupLogger()
 	defer logFile.Close()
 
-	// Get configuration
-	cfg = config.Get()
 	logger.Info("Starting Log forwarder")
 
 	// Open BBolt database

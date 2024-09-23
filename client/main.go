@@ -38,6 +38,7 @@ func setupLogger() *os.File {
 		os.Exit(1)
 	}
 
+	cfg := config.Get()
 	// Setup logger
 	var logOut LogOut = utils.NewMultiWriter(os.Stdout, logFile)
 	opts := &slog.HandlerOptions{

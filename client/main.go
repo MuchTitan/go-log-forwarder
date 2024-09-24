@@ -25,7 +25,7 @@ var (
 	runningDirectorys []*directory.DirectoryState
 	wg                *sync.WaitGroup
 	parentCtx         context.Context
-	cfg               *config.Config
+	cfg               *config.ApplicationConfig
 	logger            *slog.Logger
 	db                *bbolt.DB
 )
@@ -41,7 +41,7 @@ func setupLogger() *os.File {
 	// Setup logger
 	var logOut LogOut = utils.NewMultiWriter(os.Stdout, logFile)
 	opts := &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: slog.Level(cfg.GetLogLevel()),
 	}
 	logger = slog.New(slog.NewJSONHandler(logOut, opts))
 	return logFile

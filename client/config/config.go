@@ -7,19 +7,19 @@ import (
 	"sync"
 )
 
-type Config struct {
+type ApplicationConfig struct {
 	ServerUrl  string `json:"serverUrl"`
 	ServerPort int    `json:"serverPort"`
 	DbFile     string `json:"dbFile"`
-	LogLevel   string `json:"LogLevel"`
+	LogLevel   string `json:"logLevel"`
 }
 
 var (
-	cfg  *Config
+	cfg  *ApplicationConfig
 	once sync.Once
 )
 
-func LoadConfig() *Config {
+func LoadConfig() *ApplicationConfig {
 	once.Do(func() {
 		file, err := os.Open("config.json")
 		if err != nil {
@@ -28,7 +28,7 @@ func LoadConfig() *Config {
 		defer file.Close()
 
 		decoder := json.NewDecoder(file)
-		cfg = &Config{}
+		cfg = &ApplicationConfig{}
 		err = decoder.Decode(cfg)
 		if err != nil {
 			log.Fatalf("Failed to decode config file: %v", err)
@@ -37,7 +37,7 @@ func LoadConfig() *Config {
 	return cfg
 }
 
-func (c *Config) GetLogLevel() int {
+func (c *ApplicationConfig) GetLogLevel() int {
 	switch c.LogLevel {
 	case "DEBUG":
 		return -4
@@ -51,7 +51,7 @@ func (c *Config) GetLogLevel() int {
 	}
 }
 
-func Get() *Config {
+func Get() *ApplicationConfig {
 	if cfg == nil {
 		LoadConfig()
 	}

@@ -25,7 +25,7 @@ var (
 	runningDirectorys []*directory.DirectoryState
 	wg                *sync.WaitGroup
 	parentCtx         context.Context
-	cfg               *config.Config
+	cfg               *config.ApplicationConfig
 	logger            *slog.Logger
 	db                *bbolt.DB
 )
@@ -38,11 +38,10 @@ func setupLogger() *os.File {
 		os.Exit(1)
 	}
 
-	cfg := config.Get()
 	// Setup logger
 	var logOut LogOut = utils.NewMultiWriter(os.Stdout, logFile)
 	opts := &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: slog.Level(cfg.GetLogLevel()),
 	}
 	logger = slog.New(slog.NewJSONHandler(logOut, opts))
 	return logFile
@@ -85,12 +84,13 @@ func main() {
 	defer cancel()
 	wg = &sync.WaitGroup{}
 
+	// Get configuration
+	cfg = config.Get()
+
 	// start logger
 	logFile := setupLogger()
 	defer logFile.Close()
 
-	// Get configuration
-	cfg = config.Get()
 	logger.Info("Starting Log forwarder")
 
 	// Open BBolt database

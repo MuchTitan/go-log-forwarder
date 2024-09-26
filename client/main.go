@@ -6,6 +6,7 @@ import (
 	"io"
 	"log-forwarder-client/config"
 	"log-forwarder-client/directory"
+	"log-forwarder-client/output"
 	"log-forwarder-client/utils"
 	"log/slog"
 	"os"
@@ -49,7 +50,19 @@ func setupLogger() *os.File {
 
 func startNewDirectory(path string, parentCtx context.Context) *directory.DirectoryState {
 	serverUrl := fmt.Sprintf("http://%s:%d", cfg.ServerUrl, cfg.ServerPort)
-	dir := directory.NewDirectoryState(path, serverUrl, logger, wg, parentCtx)
+	outputCFG := output.Splunk{
+		Host:        "localhost",
+		Port:        8088,
+		SplunkToken: "397eb6a0-140f-4b0c-a0ff-dd8878672729",
+		VerifyTLS:   false,
+		SplunkEventConfig: output.SplunkEventConfig{
+			EventSourceType: "_json",
+			EventHost:       utils.GetHostname(),
+			EventIndex:      "test",
+			EventField:      map[string]interface{}{},
+		},
+	}
+	dir := directory.NewDirectoryState(path, serverUrl, logger, wg, parentCtx, outputCFG)
 
 	// Load state from database
 	if err := dir.LoadState(db); err != nil {

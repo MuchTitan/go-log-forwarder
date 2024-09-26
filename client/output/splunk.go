@@ -12,12 +12,11 @@ import (
 )
 
 type SplunkEventConfig struct {
-	SendRaw         bool                   // Wether or not the event should be send raw
-	eventKey        string                 // Key for a single value
-	eventHost       string                 // Source Host (default: hostname)
-	eventSourceType string                 // SourceType of the send event
-	eventIndex      string                 // Index to which it should send
-	eventField      map[string]interface{} // Additional key value pairs that should be send with every event
+	EventKey        string                 // Key for a single value
+	EventHost       string                 // Source Host (default: hostname)
+	EventSourceType string                 // SourceType of the send event
+	EventIndex      string                 // Index to which it should send
+	EventField      map[string]interface{} // Additional key value pairs that should be send with every event
 }
 
 type Splunk struct {
@@ -36,44 +35,42 @@ type SplunkPostData struct {
 	Host       string                 `json:"host"`
 }
 
-func (s *Splunk) Filter(input tail.LineData) tail.LineData {
+func (s Splunk) Filter(input []byte) []byte {
 	return input
 }
 
-func (s *Splunk) Send(inChan chan tail.LineData) chan error {
-	if s.eventHost == "" {
-		s.eventHost = utils.GetHostname()
+func (s Splunk) Send(input tail.LineData) ([]byte, error) {
+	if s.EventHost == "" {
+		s.EventHost = utils.GetHostname()
 	}
 
 	if s.Port == 0 {
 		s.Port = 8088
 	}
 
-	errChan := make(chan error)
+	encodedLinesMap := utils.StructToMap(input)
 
-	go func() {
-		for lineData := range inChan {
-			encodedLinesMap := utils.StructToMap(lineData)
+	eventData := utils.MergeMaps(encodedLinesMap, s.EventField)
 
-			eventData := utils.MergeMaps(encodedLinesMap, s.eventField)
+	postData := SplunkPostData{
+		Index:      s.EventIndex,
+		Host:       s.EventHost,
+		Source:     "log-forwarder",
+		Sourcetype: s.EventSourceType,
+		Event:      eventData,
+	}
 
-			postData := SplunkPostData{
-				Index:      s.eventIndex,
-				Host:       s.eventHost,
-				Source:     "log-forwarder",
-				Sourcetype: s.eventSourceType,
-				Event:      eventData,
-			}
+	postDataRaw, err := json.Marshal(postData)
+	if err != nil {
+		return postDataRaw, err
+	}
 
-			postDataRaw, err := json.Marshal(postData)
-			if err != nil {
-				errChan <- err
-			}
-			errChan <- s.SendDataToSplunk(postDataRaw)
-		}
-		close(errChan)
-	}()
-	return errChan
+	err = s.SendDataToSplunk(postDataRaw)
+	if err != nil {
+		return postDataRaw, err
+	}
+
+	return postDataRaw, nil
 }
 
 func (s *Splunk) SendDataToSplunk(data []byte) error {
@@ -108,5 +105,13 @@ func (s *Splunk) SendDataToSplunk(data []byte) error {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
+	return nil
+}
+
+func (s Splunk) Retry(data []byte) error {
+	err := s.SendDataToSplunk(data)
+	if err != nil {
+		return err
+	}
 	return nil
 }

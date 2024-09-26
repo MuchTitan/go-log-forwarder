@@ -4,8 +4,8 @@ package directory
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"log-forwarder-client/output"
 	"log-forwarder-client/tail"
 	"log-forwarder-client/utils"
 	"log/slog"
@@ -28,16 +28,10 @@ type DirectoryState struct {
 	ctx               context.Context
 	waitGroup         *sync.WaitGroup
 	linesFailedToSend [][]byte // Array of lines that didnt get send due to HTTP Errors
+	output.Output
 }
 
-type postData struct {
-	FilePath  string `json:"filePath"`
-	Data      string `json:"data"`
-	Num       int    `json:"lineNumber"`
-	Timestamp int64  `json:"timestamp"`
-}
-
-func NewDirectoryState(path string, ServerURL string, logger *slog.Logger, wg *sync.WaitGroup, ctx context.Context) *DirectoryState {
+func NewDirectoryState(path string, ServerURL string, logger *slog.Logger, wg *sync.WaitGroup, ctx context.Context, outputConfig output.Output) *DirectoryState {
 	return &DirectoryState{
 		path:              path,
 		serverURL:         ServerURL,
@@ -48,6 +42,7 @@ func NewDirectoryState(path string, ServerURL string, logger *slog.Logger, wg *s
 		waitGroup:         wg,
 		ctx:               ctx,
 		linesFailedToSend: [][]byte{},
+		Output:            outputConfig,
 	}
 }
 
@@ -93,24 +88,6 @@ func (d *DirectoryState) postData(data []byte) error {
 	return nil
 }
 
-func encodeLineToBytes(line tail.LineData) ([]byte, error) {
-	// Create postData from Line
-	pd := postData{
-		FilePath:  line.Filepath,
-		Data:      line.LineData,
-		Num:       int(line.LineNum),
-		Timestamp: line.Time.Unix(), // Convert time.Time to Unix timestamp (int64)
-	}
-
-	// Encode postData to JSON
-	jsonData, err := json.Marshal(pd)
-	if err != nil {
-		return []byte{}, err
-	}
-
-	return jsonData, nil
-}
-
 func (d *DirectoryState) lineDataHandler() {
 	for {
 		select {
@@ -118,8 +95,7 @@ func (d *DirectoryState) lineDataHandler() {
 			return
 		case lineData := <-d.sendChan:
 			// TODO: Handle the potential encoding error
-			data, _ := encodeLineToBytes(lineData)
-			err := d.postData(data)
+			data, err := d.Send(lineData)
 			if err != nil {
 				d.logger.Debug("[First Send] coundnt send line", "error", err)
 				d.linesFailedToSend = append(d.linesFailedToSend, data)

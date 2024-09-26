@@ -7,6 +7,12 @@ import (
 
 var ValidOutputs = []string{"Splunk", "PostgreSQL"}
 
+type Output interface {
+	Filter([]byte) []byte
+	Send(tail.LineData) ([]byte, error)
+	Retry([]byte) error
+}
+
 type postData struct {
 	FilePath  string `json:"filePath"`
 	Data      string `json:"data"`
@@ -30,9 +36,4 @@ func encodeLineToBytes(line tail.LineData) ([]byte, error) {
 	}
 
 	return jsonData, nil
-}
-
-type Output interface {
-	Filter([]byte) []byte
-	Send(chan tail.LineData) chan error
 }

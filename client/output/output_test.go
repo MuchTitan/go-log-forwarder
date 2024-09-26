@@ -25,11 +25,10 @@ func TestSplunk_Send(t *testing.T) {
 		Port:        8088,
 		SplunkToken: "397eb6a0-140f-4b0c-a0ff-dd8878672729",
 		SplunkEventConfig: SplunkEventConfig{
-			SendRaw:         false,
-			eventSourceType: "JSON",
-			eventHost:       utils.GetHostname(),
-			eventIndex:      "test",
-			eventField:      map[string]interface{}{"foo": "bar", "extra": "field"},
+			EventSourceType: "JSON",
+			EventHost:       utils.GetHostname(),
+			EventIndex:      "test",
+			EventField:      map[string]interface{}{"foo": "bar", "extra": "field"},
 		},
 	}
 

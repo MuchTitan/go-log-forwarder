@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"syscall"
 )
 
@@ -97,4 +98,39 @@ func CreateChecksumForFirstThreeLines(filepath string) ([]byte, error) {
 	}
 
 	return hash.Sum(nil), nil
+}
+
+func GetHostname() string {
+	hostname, _ := os.Hostname()
+	return hostname
+}
+
+// Convert the struct to a map using reflection
+func StructToMap(obj interface{}) map[string]interface{} {
+	// Get the reflection value
+	val := reflect.ValueOf(obj)
+
+	// Create a map to hold struct fields
+	result := make(map[string]interface{})
+
+	// Iterate over struct fields
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Type().Field(i)
+		value := val.Field(i).Interface()
+		tag := field.Tag.Get("json")
+		if tag == "" {
+			tag = field.Name // Use field name if no json tag
+		}
+		result[tag] = value
+	}
+
+	return result
+}
+
+// Merge the maps
+func MergeMaps(m1, m2 map[string]interface{}) map[string]interface{} {
+	for k, v := range m2 {
+		m1[k] = v
+	}
+	return m1
 }

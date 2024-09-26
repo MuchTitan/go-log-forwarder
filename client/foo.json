@@ -1,0 +1,14 @@
+{
+  "event": {
+    "Filepath": "/var/log/app.log",
+    "LineData": "Some log data",
+    "LineNum": 42,
+    "Time": "2024-09-26T21:00:32.88769169+02:00",
+    "extra": "field",
+    "foo": "bar"
+  },
+  "index": "test",
+  "source": "log-forwarder",
+  "sourcetype": "JSON",
+  "host": "Robin-PC"
+}

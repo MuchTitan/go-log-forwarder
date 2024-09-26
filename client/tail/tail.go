@@ -42,6 +42,13 @@ type LineData struct {
 	Time     time.Time
 }
 
+type postData struct {
+	FilePath  string `json:"filePath"`
+	Data      string `json:"data"`
+	Num       int    `json:"lineNumber"`
+	Timestamp int64  `json:"timestamp"`
+}
+
 // NewTailFile creates a new TailFile instance starting from a specific line
 func NewTailFile(filePath string, logger *slog.Logger, sendCh chan LineData, startLine int64, parentCtx context.Context) (*TailFile, error) {
 	// Open the file

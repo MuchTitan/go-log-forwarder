@@ -10,6 +10,9 @@
 *.log
 *.db
 
+# Config files
+*.toml
+
 # Test binary, built with `go test -c`
 *.test
 

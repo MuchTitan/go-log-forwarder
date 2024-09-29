@@ -2,22 +2,46 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
+	"log-forwarder-client/utils"
+	"log/slog"
 	"os"
 	"sync"
 )
 
 type ApplicationConfig struct {
-	ServerUrl  string `json:"serverUrl"`
-	ServerPort int    `json:"serverPort"`
-	DbFile     string `json:"dbFile"`
-	LogLevel   string `json:"logLevel"`
+	DBFile   string `json:"dbFile"`
+	LogLevel string `json:"logLevel"`
+	Logger   *slog.Logger
 }
 
 var (
 	cfg  *ApplicationConfig
 	once sync.Once
 )
+
+type LogOut interface {
+	io.Writer
+}
+
+func setupLogger(LogLevel int) *slog.Logger {
+	// Open log file
+	logFile, err := os.OpenFile("application.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		fmt.Printf("Failed to open log file: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Setup logger
+	var logOut LogOut = utils.NewMultiWriter(os.Stdout, logFile)
+	opts := &slog.HandlerOptions{
+		Level: slog.Level(LogLevel),
+	}
+	logger := slog.New(slog.NewJSONHandler(logOut, opts))
+	return logger
+}
 
 func LoadConfig() *ApplicationConfig {
 	once.Do(func() {
@@ -33,6 +57,7 @@ func LoadConfig() *ApplicationConfig {
 		if err != nil {
 			log.Fatalf("Failed to decode config file: %v", err)
 		}
+		cfg.Logger = setupLogger(cfg.GetLogLevel())
 	})
 	return cfg
 }
@@ -51,7 +76,7 @@ func (c *ApplicationConfig) GetLogLevel() int {
 	}
 }
 
-func Get() *ApplicationConfig {
+func GetApplicationConfig() *ApplicationConfig {
 	if cfg == nil {
 		LoadConfig()
 	}

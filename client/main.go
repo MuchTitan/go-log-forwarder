@@ -2,18 +2,18 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log-forwarder-client/config"
-	"log-forwarder-client/directory"
+	"log-forwarder-client/input"
 	"log-forwarder-client/output"
+	"log-forwarder-client/parser"
+	"log-forwarder-client/router"
 	"log-forwarder-client/utils"
 	"log/slog"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
-	"time"
 
 	"go.etcd.io/bbolt"
 )
@@ -23,74 +23,30 @@ type LogOut interface {
 }
 
 var (
-	runningDirectorys []*directory.DirectoryState
-	wg                *sync.WaitGroup
-	parentCtx         context.Context
-	cfg               *config.ApplicationConfig
-	logger            *slog.Logger
-	db                *bbolt.DB
+	// runningDirectorys []*directory.DirectoryState
+	wg        *sync.WaitGroup
+	parentCtx context.Context
+	cfg       *config.ApplicationConfig
+	logger    *slog.Logger
+	db        *bbolt.DB
 )
 
-func setupLogger() *os.File {
-	// Open log file
-	logFile, err := os.OpenFile("application.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		fmt.Printf("Failed to open log file: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Setup logger
-	var logOut LogOut = utils.NewMultiWriter(os.Stdout, logFile)
-	opts := &slog.HandlerOptions{
-		Level: slog.Level(cfg.GetLogLevel()),
-	}
-	logger = slog.New(slog.NewJSONHandler(logOut, opts))
-	return logFile
-}
-
-func startNewDirectory(path string, parentCtx context.Context) *directory.DirectoryState {
-	serverUrl := fmt.Sprintf("http://%s:%d", cfg.ServerUrl, cfg.ServerPort)
-	outputCFG := output.Splunk{
-		Host:        "localhost",
-		Port:        8088,
-		SplunkToken: "397eb6a0-140f-4b0c-a0ff-dd8878672729",
-		VerifyTLS:   false,
-		SplunkEventConfig: output.SplunkEventConfig{
-			EventSourceType: "_json",
-			EventHost:       utils.GetHostname(),
-			EventIndex:      "test",
-			EventField:      map[string]interface{}{},
-		},
-	}
-	dir := directory.NewDirectoryState(path, serverUrl, logger, wg, parentCtx, outputCFG)
-
-	// Load state from database
-	if err := dir.LoadState(db); err != nil {
-		logger.Error("Failed to load state from database", "error", err)
-		os.Exit(1)
-	}
-
-	go dir.Watch()
-	runningDirectorys = append(runningDirectorys, dir)
-	return dir
-}
-
-func openDB() {
-	var err error
-	db, err = bbolt.Open(cfg.DbFile, 0600, nil)
-	if err != nil {
-		logger.Error("Failed to open database", "error", err)
-		os.Exit(1)
-	}
-}
-
-func saveToDB() {
-	for _, dir := range runningDirectorys {
-		if err := dir.SaveState(db); err != nil {
-			logger.Error("Failed to save state to database", "error", err)
-		}
-	}
-}
+// func openDB() {
+// 	var err error
+// 	db, err = bbolt.Open(cfg.DBFile, 0600, nil)
+// 	if err != nil {
+// 		logger.Error("Failed to open database", "error", err)
+// 		os.Exit(1)
+// 	}
+// }
+//
+// func saveToDB() {
+// 	for _, dir := range runningDirectorys {
+// 		if err := dir.SaveState(db); err != nil {
+// 			logger.Error("Failed to save state to database", "error", err)
+// 		}
+// 	}
+// }
 
 func main() {
 	parentCtx, cancel := context.WithCancel(context.Background())
@@ -98,35 +54,31 @@ func main() {
 	wg = &sync.WaitGroup{}
 
 	// Get configuration
-	cfg = config.Get()
-
-	// start logger
-	logFile := setupLogger()
-	defer logFile.Close()
+	cfg = config.GetApplicationConfig()
+	logger = cfg.Logger
 
 	logger.Info("Starting Log forwarder")
 
-	// Open BBolt database
-	openDB()
-	defer db.Close()
+	rt := router.NewRouter(wg, parentCtx)
+	in := input.NewTail("./test/*.log", wg, parentCtx)
+	rt.AddInput(in)
 
-	startNewDirectory("./test/*.log", parentCtx)
-	startNewDirectory("/var/log/*", parentCtx)
+	jsonParser := parser.Json{}
 
-	// Periodically save state (every 3 minutes)
-	go func() {
-		ticker := time.NewTicker(3 * time.Minute)
-		defer ticker.Stop()
+	rt.AddParser(jsonParser)
 
-		for {
-			select {
-			case <-parentCtx.Done():
-				return
-			case <-ticker.C:
-				saveToDB()
-			}
-		}
-	}()
+	out := output.Splunk{
+		Host:        "localhost",
+		Port:        8088,
+		SplunkToken: "397eb6a0-140f-4b0c-a0ff-dd8878672729",
+		VerifyTLS:   false,
+		EventHost:   utils.GetHostname(),
+		EventIndex:  "test",
+	}
+
+	rt.AddOutput(out)
+
+	rt.Start()
 
 	// Wait for termination signal
 	sigCh := make(chan os.Signal, 1)
@@ -136,22 +88,7 @@ func main() {
 
 	cancel()
 
-	done := make(chan struct{})
-
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	// Wait for completion or timeout
-	select {
-	case <-done:
-		logger.Info("All goroutines completed successfully")
-	case <-time.After(120 * time.Second):
-		logger.Warn("Shutdown timed out, some goroutines may not have completed")
-	}
-
-	saveToDB()
+	rt.Stop()
 
 	logger.Info("Log forwarder shutdown complete")
 }

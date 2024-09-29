@@ -1,14 +1,18 @@
-package tail
+package input
 
 import (
 	"bufio"
 	"context"
 	"fmt"
 	"io"
+	"log-forwarder-client/config"
 	"log-forwarder-client/utils"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -23,10 +27,19 @@ type TailFile struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	doneCh     chan struct{}
-	sendCh     chan LineData
+	sendCh     chan string
 	offset     int64 // Holds the current file offset
 	startLine  int64 // The line number to start reading from
 	lineNumber int64 // Tracks the current line number
+}
+
+type Tail struct {
+	path         string
+	runningTails map[string]*TailFile
+	logger       *slog.Logger
+	sendChan     chan string // chan for all writes from the file tails
+	ctx          context.Context
+	waitGroup    *sync.WaitGroup
 }
 
 type TailFileState struct {
@@ -42,15 +55,8 @@ type LineData struct {
 	Time     time.Time
 }
 
-type postData struct {
-	FilePath  string `json:"filePath"`
-	Data      string `json:"data"`
-	Num       int    `json:"lineNumber"`
-	Timestamp int64  `json:"timestamp"`
-}
-
 // NewTailFile creates a new TailFile instance starting from a specific line
-func NewTailFile(filePath string, logger *slog.Logger, sendCh chan LineData, startLine int64, parentCtx context.Context) (*TailFile, error) {
+func NewTailFile(filePath string, sendCh chan string, logger *slog.Logger, startLine int64, parentCtx context.Context) (*TailFile, error) {
 	// Open the file
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -68,6 +74,7 @@ func NewTailFile(filePath string, logger *slog.Logger, sendCh chan LineData, sta
 	if err != nil {
 		return nil, fmt.Errorf("failed to watch file: %w", err)
 	}
+
 	// Create ctx for this FileTail
 	ctx, cancel := context.WithCancel(parentCtx)
 
@@ -85,7 +92,7 @@ func NewTailFile(filePath string, logger *slog.Logger, sendCh chan LineData, sta
 	}, nil
 }
 
-func (tf *TailFile) createLineData(data string) LineData {
+func (tf TailFile) createLineData(data string) LineData {
 	return LineData{
 		Filepath: tf.filePath,
 		LineData: strings.TrimSpace(data),
@@ -94,7 +101,7 @@ func (tf *TailFile) createLineData(data string) LineData {
 	}
 }
 
-func (tf *TailFile) GetState() (TailFileState, error) {
+func (tf TailFile) GetState() (TailFileState, error) {
 	state := TailFileState{
 		LastSendLine: tf.lineNumber,
 	}
@@ -112,14 +119,8 @@ func (tf *TailFile) GetState() (TailFileState, error) {
 	return state, nil
 }
 
-// Start begins tailing the file from the specified line
-func (tf *TailFile) Start() {
-	tf.logger.Debug("Starting file tail", "path", tf.filePath)
-	go tf.watchFile()
-}
-
 // Stop stops the file tailing and closes resources
-func (tf *TailFile) Stop() {
+func (tf *TailFile) stop() {
 	tf.watcher.Close()
 	tf.file.Close()
 	if tf.ctx != nil {
@@ -129,8 +130,8 @@ func (tf *TailFile) Stop() {
 	tf.logger.Debug("Stopping file tail", "path", tf.filePath)
 }
 
-// watchFile monitors for changes using fsnotify
-func (tf *TailFile) watchFile() {
+// start monitors for changes using fsnotify
+func (tf *TailFile) start() {
 	// Start by reading all existing lines up to the target line
 	tf.readExistingLines()
 
@@ -162,7 +163,7 @@ func (tf *TailFile) readExistingLines() {
 	reader := bufio.NewReader(tf.file)
 
 	for {
-		line, err := reader.ReadString('\n')
+		lineRaw, err := reader.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
 				tf.logger.Error("Error reading from file", "error", err)
@@ -172,11 +173,13 @@ func (tf *TailFile) readExistingLines() {
 			return
 		}
 		tf.lineNumber++
+		line := strings.TrimSpace(lineRaw)
+		result := fmt.Sprintf(`{"filepath":"%s", "data": "%s"}`, tf.filePath, line)
 		if tf.lineNumber > tf.startLine {
 			select {
 			case <-tf.ctx.Done():
 				return
-			case tf.sendCh <- tf.createLineData(line):
+			case tf.sendCh <- result:
 				// Line sent successfully
 			}
 		}
@@ -193,7 +196,7 @@ func (tf *TailFile) readNewLines() {
 	reader := bufio.NewReader(tf.file)
 
 	for {
-		line, err := reader.ReadString('\n')
+		lineRaw, err := reader.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
 				tf.logger.Error("Error reading from file", "error", err)
@@ -203,11 +206,132 @@ func (tf *TailFile) readNewLines() {
 			return
 		}
 		tf.lineNumber++
+		line := strings.TrimSpace(lineRaw)
+		result := fmt.Sprintf(`{"filepath":"%s", "data": "%s"}`, tf.filePath, line)
 		select {
 		case <-tf.ctx.Done():
 			return
-		case tf.sendCh <- tf.createLineData(line):
+		case tf.sendCh <- result:
 			// Line sent successfully
 		}
 	}
+}
+
+func NewTail(glob string, wg *sync.WaitGroup, parentCtx context.Context) Tail {
+	cfg := config.GetApplicationConfig()
+	tail := Tail{
+		path:         glob,
+		logger:       cfg.Logger,
+		runningTails: make(map[string]*TailFile),
+		sendChan:     make(chan string),
+		waitGroup:    wg,
+		ctx:          parentCtx,
+	}
+	go tail.Watch()
+	return tail
+}
+
+func (t *Tail) getDirContent(glob string) []string {
+	filepathsFromGlob, err := filepath.Glob(glob)
+	if err != nil {
+		return []string{}
+	}
+
+	filepaths := []string{}
+	for _, filepath := range filepathsFromGlob {
+		fileInfo, err := os.Stat(filepath)
+		if err != nil {
+			t.logger.Error("Coundnt retrieve fileinfo while getting directory content", "error", err, "path", filepath)
+			continue
+		}
+		// If filepath is dir dont add to return array
+		if fileInfo.IsDir() {
+			continue
+		}
+		// If File is not readable dont add to return array
+		if _, err := os.Open(filepath); err != nil {
+			continue
+		}
+
+		filepaths = append(filepaths, filepath)
+	}
+
+	return filepaths
+}
+
+func (t Tail) Read() <-chan string {
+	return t.sendChan
+}
+
+func (t *Tail) Watch() {
+	err := t.checkDirectory()
+	if err != nil {
+		t.logger.Error("Failed to check directory", "error", err, "path", t.path)
+	}
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	t.waitGroup.Add(1)
+	defer t.waitGroup.Done()
+	for {
+		select {
+		case <-t.ctx.Done():
+			t.Stop()
+			return
+		case <-ticker.C:
+			if err := t.checkDirectory(); err != nil {
+				t.logger.Error("Failed to check directory", "error", err, "path", t.path)
+			}
+		}
+	}
+}
+
+func getKeysFromMap[T any | *TailFile](input map[string]T) []string {
+	out := []string{}
+	for key := range input {
+		out = append(out, key)
+	}
+	return out
+}
+
+func (t *Tail) checkDirectory() error {
+	files := t.getDirContent(t.path)
+
+	for _, file := range files {
+		if _, exists := t.runningTails[file]; !exists {
+			if err := t.startTail(file); err != nil {
+				t.logger.Error("Failed to start tail", "error", err, "path", t.path)
+			}
+		}
+	}
+
+	t.logger.Debug("running file tails", "tails", getKeysFromMap(t.runningTails))
+
+	for file, tail := range t.runningTails {
+		if !slices.Contains(files, file) {
+			tail.stop()
+			delete(t.runningTails, file)
+		}
+	}
+
+	return nil
+}
+
+func (t *Tail) startTail(path string) error {
+	tail, err := NewTailFile(path, t.sendChan, t.logger, 0, t.ctx)
+	if err != nil {
+		return err
+	}
+
+	go tail.start()
+
+	t.runningTails[path] = tail
+	return nil
+}
+
+func (t Tail) Stop() {
+	for _, tail := range t.runningTails {
+		tail.stop()
+	}
+	close(t.sendChan)
 }

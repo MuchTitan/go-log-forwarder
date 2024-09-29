@@ -2,32 +2,31 @@ package output
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"log-forwarder-client/tail"
 	"log-forwarder-client/utils"
 	"net/http"
 	"time"
+
+	"github.com/mitchellh/mapstructure"
 )
 
-type SplunkEventConfig struct {
-	EventKey        string                 // Key for a single value
-	EventHost       string                 // Source Host (default: hostname)
-	EventSourceType string                 // SourceType of the send event
-	EventIndex      string                 // Index to which it should send
-	EventField      map[string]interface{} // Additional key value pairs that should be send with every event
-}
-
 type Splunk struct {
-	Host        string
-	Port        int
-	SplunkToken string
-	VerifyTLS   bool
-	SplunkEventConfig
+	Host            string                 `mapstructure:"Host"`
+	Port            int                    `mapstructure:"Port"`
+	SplunkToken     string                 `mapstructure:"Token"`
+	VerifyTLS       bool                   `mapstructure:"VerifyTLS"`
+	EventKey        string                 `mapstructure:"EventKey"`        // Key for a single value
+	EventHost       string                 `mapstructure:"EventHost"`       // Source Host (default: hostname)
+	EventSourceType string                 `mapstructure:"EventSourceType"` // SourceType of the send event
+	EventIndex      string                 `mapstructure:"EventIndex"`      // Index to which it should send
+	EventField      map[string]interface{} `mapstructure:"EventField"`      // Additional key value pairs that should be send with every event
 }
 
 type SplunkPostData struct {
+	Time       int64                  `json:"time"`
 	Event      map[string]interface{} `json:"event"` // here lives the data
 	Index      string                 `json:"index"`
 	Source     string                 `json:"source"`
@@ -35,24 +34,24 @@ type SplunkPostData struct {
 	Host       string                 `json:"host"`
 }
 
-func (s Splunk) Filter(input []byte) []byte {
-	return input
-}
-
-func (s Splunk) Send(input tail.LineData) ([]byte, error) {
-	if s.EventHost == "" {
-		s.EventHost = utils.GetHostname()
+func (s Splunk) Write(data map[string]interface{}) {
+	if s.SplunkToken == "" {
+		panic("No Splunk token provided")
 	}
 
-	if s.Port == 0 {
-		s.Port = 8088
+	if s.EventIndex == "" {
+		panic("No Splunk index provided")
 	}
 
-	encodedLinesMap := utils.StructToMap(input)
+	s.EventHost = cmp.Or(s.EventHost, utils.GetHostname())
+	s.Host = cmp.Or(s.Host, "localhost")
+	s.Port = cmp.Or(s.Port, 8088)
+	s.EventSourceType = cmp.Or(s.EventSourceType, "JSON")
 
-	eventData := utils.MergeMaps(encodedLinesMap, s.EventField)
+	eventData := utils.MergeMaps(data, s.EventField)
 
 	postData := SplunkPostData{
+		Time:       time.Now().Unix(),
 		Index:      s.EventIndex,
 		Host:       s.EventHost,
 		Source:     "log-forwarder",
@@ -62,15 +61,13 @@ func (s Splunk) Send(input tail.LineData) ([]byte, error) {
 
 	postDataRaw, err := json.Marshal(postData)
 	if err != nil {
-		return postDataRaw, err
+		return
 	}
 
 	err = s.SendDataToSplunk(postDataRaw)
 	if err != nil {
-		return postDataRaw, err
+		return
 	}
-
-	return postDataRaw, nil
 }
 
 func (s *Splunk) SendDataToSplunk(data []byte) error {
@@ -108,10 +105,13 @@ func (s *Splunk) SendDataToSplunk(data []byte) error {
 	return nil
 }
 
-func (s Splunk) Retry(data []byte) error {
-	err := s.SendDataToSplunk(data)
+func SplunkParseConfig(input map[string]interface{}) Splunk {
+	var splunk Splunk
+	err := mapstructure.Decode(input, &splunk)
 	if err != nil {
-		return err
+		fmt.Println("Error:", err)
+		return splunk
 	}
-	return nil
+
+	return splunk
 }

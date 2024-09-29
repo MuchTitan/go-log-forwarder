@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"syscall"
+	"time"
 )
 
 type MultiWriter struct {
@@ -133,4 +134,12 @@ func MergeMaps(m1, m2 map[string]interface{}) map[string]interface{} {
 		m1[k] = v
 	}
 	return m1
+}
+
+func ParseTime(timeStr string) (time.Time, error) {
+	parsedTime, err := time.Parse(time.RFC3339, timeStr)
+	if err != nil {
+		return time.Now(), fmt.Errorf("failed to parse Time: %w", err)
+	}
+	return parsedTime, nil
 }

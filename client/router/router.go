@@ -61,17 +61,11 @@ func (r *Router) startHandlerLoop(in input.Input) {
 	defer r.wg.Done()
 	// Read from input and route to outputs
 	for data := range in.Read() {
-		// Init variables
-		var parsedData map[string]interface{}
-		var err error
-
 		// Apply parser
-		if r.parser != nil {
-			parsedData, err = r.parser.Apply(data)
-			if err != nil {
-				r.logger.Warn("Coundnt parse input data", "data", data)
-				continue
-			}
+		parsedData, err := r.parser.Apply(data)
+		if err != nil {
+			r.logger.Warn("Coundnt parse input data", "error", err, "data", data)
+			continue
 		}
 
 		// Apply filter
@@ -92,6 +86,10 @@ func (r *Router) startHandlerLoop(in input.Input) {
 func (r *Router) Start() {
 	if r.input == nil {
 		r.logger.Error("Coundnt start router no input is defiend")
+		return
+	}
+	if r.parser == nil {
+		r.logger.Error("Coundnt start router no parser is defiend")
 		return
 	}
 	if len(r.outputs) < 1 {

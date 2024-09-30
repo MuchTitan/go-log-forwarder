@@ -1,9 +1,11 @@
 package output
 
+import "log-forwarder-client/parser"
+
 var ValidOutputs = []string{"splunk", "postgresql"}
 
 type Output interface {
-	Write(data map[string]interface{})
+	Write(data parser.ParsedData)
 }
 
 type postData struct {

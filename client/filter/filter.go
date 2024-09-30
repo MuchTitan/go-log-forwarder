@@ -1,5 +1,7 @@
 package filter
 
+import "log-forwarder-client/parser"
+
 type Filter interface {
-	Apply(data map[string]interface{}) (map[string]interface{}, bool)
+	Apply(data parser.ParsedData) (parser.ParsedData, bool)
 }

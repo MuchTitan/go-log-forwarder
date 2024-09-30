@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"io"
 	"log-forwarder-client/config"
 	"log-forwarder-client/input"
 	"log-forwarder-client/output"
@@ -17,10 +16,6 @@ import (
 
 	"go.etcd.io/bbolt"
 )
-
-type LogOut interface {
-	io.Writer
-}
 
 var (
 	// runningDirectorys []*directory.DirectoryState
@@ -49,7 +44,7 @@ var (
 // }
 
 func main() {
-	parentCtx, cancel := context.WithCancel(context.Background())
+	rootCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	wg = &sync.WaitGroup{}
 
@@ -59,13 +54,18 @@ func main() {
 
 	logger.Info("Starting Log forwarder")
 
-	rt := router.NewRouter(wg, parentCtx)
-	in := input.NewTail("./test/*.log", wg, parentCtx)
+	rt := router.NewRouter(wg, rootCtx)
+	in := input.NewTail("./test/*.log", wg, rootCtx)
 	rt.AddInput(in)
 
-	jsonParser := parser.Json{}
+	// jsonParser := parser.Json{}
+	regexParser := parser.Regex{
+		Pattern:    `^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$`,
+		TimeKey:    "time",
+		TimeFormat: "%d/%b/%Y:%H:%M:%S %z",
+	}
 
-	rt.AddParser(jsonParser)
+	rt.AddParser(regexParser)
 
 	out := output.Splunk{
 		Host:        "localhost",

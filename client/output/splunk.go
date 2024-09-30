@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"log-forwarder-client/parser"
 	"log-forwarder-client/utils"
 	"net/http"
 	"time"
@@ -34,7 +35,7 @@ type SplunkPostData struct {
 	Host       string                 `json:"host"`
 }
 
-func (s Splunk) Write(data map[string]interface{}) {
+func (s Splunk) Write(data parser.ParsedData) {
 	if s.SplunkToken == "" {
 		panic("No Splunk token provided")
 	}
@@ -48,10 +49,18 @@ func (s Splunk) Write(data map[string]interface{}) {
 	s.Port = cmp.Or(s.Port, 8088)
 	s.EventSourceType = cmp.Or(s.EventSourceType, "JSON")
 
-	eventData := utils.MergeMaps(data, s.EventField)
+	eventData := utils.MergeMaps(data.Data, s.EventField)
+	eventData = utils.MergeMaps(data.Data, data.Metadata)
+
+	var timeValue int64
+	if data.Time != 0 {
+		timeValue = data.Time
+	} else {
+		timeValue = time.Now().Unix()
+	}
 
 	postData := SplunkPostData{
-		Time:       time.Now().Unix(),
+		Time:       timeValue,
 		Index:      s.EventIndex,
 		Host:       s.EventHost,
 		Source:     "log-forwarder",
@@ -61,11 +70,13 @@ func (s Splunk) Write(data map[string]interface{}) {
 
 	postDataRaw, err := json.Marshal(postData)
 	if err != nil {
+		fmt.Println(err)
 		return
 	}
 
 	err = s.SendDataToSplunk(postDataRaw)
 	if err != nil {
+		fmt.Println(err)
 		return
 	}
 }

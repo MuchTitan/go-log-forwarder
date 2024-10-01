@@ -9,7 +9,7 @@ type Input interface {
 	Stop()
 }
 
-func buildMetadata(metadata map[string]string) ([]byte, error) {
+func buildMetadata(metadata map[string]interface{}) ([]byte, error) {
 	data, err := json.Marshal(metadata)
 	return data, err
 }

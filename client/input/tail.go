@@ -162,8 +162,9 @@ func (tf *TailFile) readExistingLines() {
 		var result [][]byte
 		result = append(result, []byte(line))
 
-		metadata, err := buildMetadata(map[string]string{
-			"filepath": tf.filePath,
+		metadata, err := buildMetadata(map[string]interface{}{
+			"filepath":   tf.filePath,
+			"linenumber": tf.lineNumber,
 		})
 		if err != nil {
 			tf.logger.Warn("Coundnt build metadata", "error", err)
@@ -207,8 +208,9 @@ func (tf *TailFile) readNewLines() {
 		var result [][]byte
 		result = append(result, []byte(line))
 
-		metadata, err := buildMetadata(map[string]string{
-			"filepath": tf.filePath,
+		metadata, err := buildMetadata(map[string]interface{}{
+			"filepath":   tf.filePath,
+			"linenumber": tf.lineNumber,
 		})
 		if err != nil {
 			tf.logger.Warn("Coundnt build metadata", "error", err)

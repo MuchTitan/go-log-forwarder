@@ -20,20 +20,21 @@ type Router struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	logger  *slog.Logger
+	retry   *RetryQueue
 }
 
 func NewRouter(inWg *sync.WaitGroup, parentCtx context.Context) *Router {
 	ctx, cancel := context.WithCancel(parentCtx)
-	cfg := config.GetApplicationConfig()
 	return &Router{
 		wg:     inWg,
 		ctx:    ctx,
 		cancel: cancel,
-		logger: cfg.Logger,
+		logger: config.GetLogger(),
+		retry:  NewRetryQueue(config.GetLogger()),
 	}
 }
 
-func (r *Router) AddInput(input input.Input) {
+func (r *Router) SetInput(input input.Input) {
 	r.input = input
 }
 
@@ -41,7 +42,7 @@ func (r *Router) AddOutput(output output.Output) {
 	r.outputs = append(r.outputs, output)
 }
 
-func (r *Router) AddParser(parser parser.Parser) {
+func (r *Router) SetParser(parser parser.Parser) {
 	if r.parser != nil {
 		r.logger.Warn("More than one Parser is for an input defiend")
 		return
@@ -49,7 +50,7 @@ func (r *Router) AddParser(parser parser.Parser) {
 	r.parser = parser
 }
 
-func (r *Router) AddFilter(filter filter.Filter) {
+func (r *Router) SetFilter(filter filter.Filter) {
 	if r.filter != nil {
 		r.logger.Warn("More than one Filter is for an input defiend")
 		return
@@ -76,8 +77,17 @@ func (r *Router) startHandlerLoop(in input.Input) {
 
 		// If the data passes all filters, send it to outputs
 		if pass {
+			statusOutputs := []output.Output{}
 			for _, output := range r.outputs {
-				output.Write(parsedData)
+				err = output.Write(parsedData)
+				if err != nil {
+					statusOutputs = append(statusOutputs, output)
+				}
+
+				// Add data to retryQueue if necassary
+				if len(statusOutputs) > 0 {
+					r.retry.AddRetryData(parsedData, statusOutputs)
+				}
 			}
 		}
 	}
@@ -98,9 +108,11 @@ func (r *Router) Start() {
 	}
 	r.wg.Add(1)
 	go r.startHandlerLoop(r.input)
+	go r.retry.RetryHandlerLoop()
 }
 
 func (r *Router) Stop() {
 	r.cancel()
+	r.retry.Stop()
 	r.wg.Wait()
 }

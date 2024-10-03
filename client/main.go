@@ -3,45 +3,23 @@ package main
 import (
 	"context"
 	"log-forwarder-client/config"
+	"log-forwarder-client/database"
 	"log-forwarder-client/input"
 	"log-forwarder-client/output"
 	"log-forwarder-client/parser"
 	"log-forwarder-client/router"
-	"log-forwarder-client/utils"
 	"log/slog"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
-
-	"go.etcd.io/bbolt"
 )
 
 var (
-	// runningDirectorys []*directory.DirectoryState
-	wg        *sync.WaitGroup
-	parentCtx context.Context
-	cfg       *config.ApplicationConfig
-	logger    *slog.Logger
-	db        *bbolt.DB
+	wg     *sync.WaitGroup
+	cfg    *config.ApplicationConfig
+	logger *slog.Logger
 )
-
-// func openDB() {
-// 	var err error
-// 	db, err = bbolt.Open(cfg.DBFile, 0600, nil)
-// 	if err != nil {
-// 		logger.Error("Failed to open database", "error", err)
-// 		os.Exit(1)
-// 	}
-// }
-//
-// func saveToDB() {
-// 	for _, dir := range runningDirectorys {
-// 		if err := dir.SaveState(db); err != nil {
-// 			logger.Error("Failed to save state to database", "error", err)
-// 		}
-// 	}
-// }
 
 func main() {
 	rootCtx, cancel := context.WithCancel(context.Background())
@@ -50,33 +28,47 @@ func main() {
 
 	// Get configuration
 	cfg = config.GetApplicationConfig()
+
+	// Setup Logger
 	logger = cfg.Logger
+
+	// Setup DB
+	err := database.Open(cfg.DBFile)
+	if err != nil {
+		logger.Error("Coundnt open DB", "error", err)
+		os.Exit(1)
+	}
 
 	logger.Info("Starting Log forwarder")
 
 	rt := router.NewRouter(wg, rootCtx)
 	in := input.NewTail("./test/*.log", wg, rootCtx)
-	rt.AddInput(in)
+	rt.SetInput(in)
 
-	// jsonParser := parser.Json{}
 	regexParser := parser.Regex{
 		Pattern:    `^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$`,
 		TimeKey:    "time",
 		TimeFormat: "%d/%b/%Y:%H:%M:%S %z",
 	}
 
-	rt.AddParser(regexParser)
+	rt.SetParser(regexParser)
 
-	out := output.Splunk{
-		Host:        "localhost",
-		Port:        8088,
-		SplunkToken: "397eb6a0-140f-4b0c-a0ff-dd8878672729",
-		VerifyTLS:   false,
-		EventHost:   utils.GetHostname(),
-		EventIndex:  "test",
-	}
+	splunk := output.NewSplunk(
+		"localhost",
+		8088,
+		"397eb6a0-140f-4b0c-a0ff-dd8878672729",
+		false,
+		"",
+		"",
+		"apache-log",
+		"test",
+		map[string]interface{}{},
+	)
 
-	rt.AddOutput(out)
+	stdout := output.Stdout{}
+
+	// rt.AddOutput(splunk)
+	rt.AddOutput(stdout)
 
 	rt.Start()
 
@@ -89,6 +81,10 @@ func main() {
 	cancel()
 
 	rt.Stop()
+
+	if err := database.Close(); err != nil {
+		logger.Error("Coundnt close DB", "error", err)
+	}
 
 	logger.Info("Log forwarder shutdown complete")
 }

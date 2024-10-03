@@ -82,3 +82,10 @@ func GetApplicationConfig() *ApplicationConfig {
 	}
 	return cfg
 }
+
+func GetLogger() *slog.Logger {
+	if cfg == nil {
+		LoadConfig()
+	}
+	return cfg.Logger
+}

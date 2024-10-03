@@ -2,15 +2,13 @@ package output
 
 import "log-forwarder-client/parser"
 
-var ValidOutputs = []string{"splunk", "postgresql"}
+var ValidOutputs = []string{"splunk", "stdout"}
 
 type Output interface {
-	Write(data parser.ParsedData)
+	Write(data parser.ParsedData) error
 }
 
-type postData struct {
-	FilePath  string `json:"filePath"`
-	Data      string `json:"data"`
-	Num       int    `json:"lineNumber"`
-	Timestamp int64  `json:"timestamp"`
+type OutState struct {
+	State map[string]interface{}
+	Name  string
 }

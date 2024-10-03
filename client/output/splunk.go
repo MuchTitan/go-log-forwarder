@@ -6,12 +6,20 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"log-forwarder-client/config"
 	"log-forwarder-client/parser"
 	"log-forwarder-client/utils"
 	"net/http"
 	"time"
 
 	"github.com/mitchellh/mapstructure"
+)
+
+const (
+	CreateSplunkOutTable        = `CREATE TABLE IF NOT EXISTS splunk_unsent_events (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT, time INTEGER, input TEXT)`
+	AddDataToSplunkTable        = `INSERT INTO splunk_unsent_events (data,time,input) VALUES (?, ?, ?)` // Parameters: lineData, Unix Timestamp, inputFile
+	RetrieveDataFromSplunkTable = `SELECT id,data FROM splunk_unsent_events WHERE input = ?`            // Parameters: inputFile Output: id, lineData
+	DeleteDataFromSplunkTable   = `DELETE FROM splunk_unsent_events WHERE id = ?`                       // Parameters: id
 )
 
 type Splunk struct {
@@ -35,19 +43,51 @@ type SplunkPostData struct {
 	Host       string                 `json:"host"`
 }
 
-func (s Splunk) Write(data parser.ParsedData) {
-	if s.SplunkToken == "" {
+// NewSplunk is a constructor function that creates and returns a new instance of the Splunk struct.
+// It ensures that the essential fields, such as SplunkToken and EventIndex, are provided, and applies
+// sensible defaults for other fields when values are not explicitly given.
+//
+// Parameters:
+//   - host (string): The hostname or IP address of the Splunk server. Defaults to "localhost" if empty.
+//   - port (int): The port of the Splunk server. Defaults to 8088 if zero is provided.
+//   - token (string): The authentication token for Splunk. This is a required parameter.
+//   - verifyTLS (bool): Indicates whether to verify the TLS certificate for Splunk.
+//   - eventKey (string): The key for a single event value.
+//   - eventHost (string): The source host for events. Defaults to the system hostname if empty.
+//   - eventSourceType (string): The source type of the event. Defaults to "JSON" if empty.
+//   - eventIndex (string): The index to which the events will be sent. This is a required parameter.
+//   - eventField (map[string]interface{}): Additional key-value pairs to be included with every event.
+//
+// Returns:
+//   - Splunk: A a newly initialized Splunk instance.
+//
+// Panics:
+//   - If the token is empty, indicating that no Splunk token was provided.
+//   - If the eventIndex is empty, indicating that no Splunk index was provided.
+func NewSplunk(host string, port int, token string, verifyTLS bool, eventKey, eventHost, eventSourceType, eventIndex string, eventField map[string]interface{}) Splunk {
+	if token == "" {
 		panic("No Splunk token provided")
 	}
 
-	if s.EventIndex == "" {
+	if eventIndex == "" {
 		panic("No Splunk index provided")
 	}
 
-	s.EventHost = cmp.Or(s.EventHost, utils.GetHostname())
-	s.Host = cmp.Or(s.Host, "localhost")
-	s.Port = cmp.Or(s.Port, 8088)
-	s.EventSourceType = cmp.Or(s.EventSourceType, "JSON")
+	return Splunk{
+		Host:            cmp.Or(host, "localhost"),
+		Port:            cmp.Or(port, 8088),
+		SplunkToken:     token,
+		VerifyTLS:       verifyTLS,
+		EventKey:        eventKey,
+		EventHost:       cmp.Or(eventHost, utils.GetHostname()),
+		EventSourceType: cmp.Or(eventSourceType, "JSON"),
+		EventIndex:      eventIndex,
+		EventField:      eventField,
+	}
+}
+
+func (s Splunk) Write(data parser.ParsedData) error {
+	logger := config.GetLogger()
 
 	eventData := utils.MergeMaps(data.Data, s.EventField)
 	eventData = utils.MergeMaps(data.Data, data.Metadata)
@@ -70,15 +110,16 @@ func (s Splunk) Write(data parser.ParsedData) {
 
 	postDataRaw, err := json.Marshal(postData)
 	if err != nil {
-		fmt.Println(err)
-		return
+		logger.Debug("[Splunk] Coundnt parse data in to JSON format", "error", err)
+		return err
 	}
 
 	err = s.SendDataToSplunk(postDataRaw)
 	if err != nil {
-		fmt.Println(err)
-		return
+		logger.Debug("[Splunk] Coundnt send data", "error", err)
+		return err
 	}
+	return nil
 }
 
 func (s *Splunk) SendDataToSplunk(data []byte) error {

@@ -3,12 +3,16 @@ package output
 import (
 	"encoding/json"
 	"fmt"
+	"log-forwarder-client/parser"
+	"log-forwarder-client/utils"
 	"os"
 )
 
 type Stdout struct{}
 
-func (st Stdout) Write(data map[string]interface{}) {
-	byteData, _ := json.Marshal(data)
-	fmt.Fprintln(os.Stdout, string(byteData))
+func (st Stdout) Write(data parser.ParsedData) error {
+	dataWithMetadata := utils.MergeMaps(data.Data, data.Metadata)
+	byteData, _ := json.Marshal(dataWithMetadata)
+	_, err := fmt.Fprintln(os.Stdout, string(byteData))
+	return err
 }

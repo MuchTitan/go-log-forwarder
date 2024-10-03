@@ -48,7 +48,6 @@ func ExtractTimeKey(timeKey, timeFormat string, data ParsedData) (ParsedData, er
 			return data, err
 		}
 		delete(data.Data, timeKey)
-		fmt.Println(data.Data)
 		data.Time = parsedTime
 		return data, nil
 	}

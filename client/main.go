@@ -53,17 +53,17 @@ func main() {
 
 	rt.SetParser(regexParser)
 
-	splunk := output.NewSplunk(
-		"localhost",
-		8088,
-		"397eb6a0-140f-4b0c-a0ff-dd8878672729",
-		false,
-		"",
-		"",
-		"apache-log",
-		"test",
-		map[string]interface{}{},
-	)
+	// splunk := output.NewSplunk(
+	// 	"localhost",
+	// 	8088,
+	// 	"397eb6a0-140f-4b0c-a0ff-dd8878672729",
+	// 	false,
+	// 	"",
+	// 	"",
+	// 	"apache-log",
+	// 	"test",
+	// 	map[string]interface{}{},
+	// )
 
 	stdout := output.Stdout{}
 

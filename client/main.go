@@ -32,17 +32,20 @@ func main() {
 	// Setup Logger
 	logger = cfg.Logger
 
-	// Setup DB
-	err := database.Open(cfg.DBFile)
+	err := database.OpenDB(cfg.DBFile)
 	if err != nil {
-		logger.Error("Coundnt open DB", "error", err)
+		logger.Error("Failed to open database", "error", err)
 		os.Exit(1)
 	}
+	defer database.CloseDB()
 
 	logger.Info("Starting Log forwarder")
 
-	rt := router.NewRouter(wg, rootCtx)
-	in := input.NewTail("./test/*.log", wg, rootCtx)
+	rt := router.NewRouter(wg, rootCtx, logger)
+	in, err := input.NewTail("./test/*.log", config.GetLogger(), wg, rootCtx)
+	if err != nil {
+		panic(err)
+	}
 	rt.SetInput(in)
 
 	regexParser := parser.Regex{
@@ -53,22 +56,20 @@ func main() {
 
 	rt.SetParser(regexParser)
 
-	// splunk := output.NewSplunk(
-	// 	"localhost",
-	// 	8088,
-	// 	"397eb6a0-140f-4b0c-a0ff-dd8878672729",
-	// 	false,
-	// 	"",
-	// 	"",
-	// 	"apache-log",
-	// 	"test",
-	// 	map[string]interface{}{},
-	// )
+	splunk := output.NewSplunk(
+		"localhost",
+		8088,
+		"397eb6a0-140f-4b0c-a0ff-dd8878672729",
+		false,
+		"",
+		"",
+		"apache-log",
+		"test",
+		map[string]interface{}{},
+		logger,
+	)
 
-	stdout := output.Stdout{}
-
-	// rt.AddOutput(splunk)
-	rt.AddOutput(stdout)
+	rt.AddOutput(splunk)
 
 	rt.Start()
 
@@ -81,10 +82,6 @@ func main() {
 	cancel()
 
 	rt.Stop()
-
-	if err := database.Close(); err != nil {
-		logger.Error("Coundnt close DB", "error", err)
-	}
 
 	logger.Info("Log forwarder shutdown complete")
 }

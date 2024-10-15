@@ -2,36 +2,26 @@ package database
 
 import (
 	"database/sql"
-	"fmt"
-	"sync"
+	"log"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
-var (
-	db   *sql.DB
-	once sync.Once
-)
+var DB *sql.DB
 
-func Open(dbName string) error {
+func OpenDB(dbFile string) error {
 	var err error
-	once.Do(func() {
-		db, err = sql.Open("sqlite3", dbName)
-	})
+	DB, err = sql.Open("sqlite3", dbFile)
 	return err
 }
 
-func Close() error {
-	return db.Close()
+func GetDB() *sql.DB {
+	if DB == nil {
+		log.Fatalln("Trying to get a DB that is not opened yet")
+	}
+	return DB
 }
 
-func ExecDBQuery(query string, args ...any) error {
-	if db == nil {
-		return fmt.Errorf("No DB opened yet")
-	}
-	_, err := db.Exec(query, args...)
-	if err != nil {
-		return err
-	}
-	return nil
+func CloseDB() {
+	DB.Close()
 }

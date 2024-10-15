@@ -8,7 +8,15 @@ import (
 	"os"
 )
 
-type Stdout struct{}
+type Stdout struct {
+	Name string
+}
+
+func NewStout() Stdout {
+	return Stdout{
+		Name: "stdout",
+	}
+}
 
 func (st Stdout) Write(data parser.ParsedData) error {
 	dataWithMetadata := utils.MergeMaps(data.Data, data.Metadata)

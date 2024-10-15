@@ -9,8 +9,8 @@ import (
 )
 
 type RetryData struct {
-	Outputs []output.Output
-	Data    parser.ParsedData
+	LineData parser.ParsedData
+	Outputs  []output.Output
 }
 
 type RetryQueue struct {
@@ -32,8 +32,8 @@ func (rq *RetryQueue) AddRetryData(data parser.ParsedData, outputs []output.Outp
 	rq.mu.Lock()
 	defer rq.mu.Unlock()
 	rd := &RetryData{
-		Data:    data,
-		Outputs: outputs,
+		LineData: data,
+		Outputs:  outputs,
 	}
 	rq.data = append(rq.data, rd)
 }
@@ -54,7 +54,7 @@ func (rq *RetryQueue) RetryHandlerLoop() {
 				allSucceeded := true
 				var outputs []output.Output
 				for _, output := range data.Outputs {
-					err := output.Write(data.Data)
+					err := output.Write(data.LineData)
 					if err != nil {
 						allSucceeded = false
 						outputs = append(outputs, output)

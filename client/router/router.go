@@ -8,6 +8,7 @@ import (
 	"log-forwarder-client/input"
 	"log-forwarder-client/output"
 	"log-forwarder-client/parser"
+	"log-forwarder-client/utils"
 	"log/slog"
 	"sync"
 	"time"
@@ -15,28 +16,27 @@ import (
 
 type Router struct {
 	input      input.Input
-	outputs    []output.Output
 	parser     parser.Parser
 	filter     filter.Filter
-	wg         *sync.WaitGroup
 	ctx        context.Context
+	wg         *sync.WaitGroup
 	cancel     context.CancelFunc
 	logger     *slog.Logger
 	retryQueue *RetryQueue
+	outputs    []output.Output
 	db         *sql.DB
 	dbID       int64
 }
 
 func NewRouter(inWg *sync.WaitGroup, parentCtx context.Context, logger *slog.Logger) *Router {
 	ctx, cancel := context.WithCancel(parentCtx)
-	db := database.GetDB()
 	return &Router{
 		wg:         inWg,
 		ctx:        ctx,
 		cancel:     cancel,
 		logger:     logger,
 		retryQueue: NewRetryQueue(logger),
-		db:         db,
+		db:         database.GetDB(),
 	}
 }
 
@@ -45,6 +45,10 @@ func (r *Router) AddOutput(output output.Output) {
 }
 
 func (r *Router) SetInput(input input.Input) {
+	if r.input != nil {
+		r.logger.Warn("More than one Input is for an router defiend")
+		return
+	}
 	r.input = input
 }
 
@@ -113,9 +117,25 @@ func (r *Router) Start() {
 		r.logger.Error("Coundnt start router no outputs are defiend")
 		return
 	}
+	err := r.RouterGetIdFromDB()
+	if err != nil {
+		err := r.RouterSaveStateToDB()
+		if err != nil {
+			r.logger.Error("coundnt save router to db", "error", err)
+			r.logger.Warn("didnt start router", "output", utils.GetNameOfInterface(r.outputs[0]), "parser", utils.GetNameOfInterface(r.parser), "parser", utils.GetNameOfInterface(r.parser))
+			return
+		}
+	}
+
+	err = r.retryQueue.LoadDataFromDB(r.dbID, r.outputs)
+	if err != nil {
+		r.logger.Error("foo", "error", err)
+	}
+
 	r.wg.Add(1)
+	r.input.Start()
 	go r.StartHandlerLoop()
-	go r.retryQueue.RetryHandlerLoop()
+	go r.retryQueue.RetryHandlerLoop(r.dbID)
 	go r.StateHandlerLoop()
 }
 
@@ -123,7 +143,7 @@ func (r *Router) Stop() {
 	r.cancel()
 	r.retryQueue.Stop()
 	r.wg.Wait()
-	r.input.SaveState()
+	r.SaveRouterState()
 }
 
 func (r *Router) StateHandlerLoop() {
@@ -137,7 +157,43 @@ func (r *Router) StateHandlerLoop() {
 		case <-r.ctx.Done():
 			return
 		case <-ticker.C:
-			r.input.SaveState()
+			r.SaveRouterState()
 		}
 	}
+}
+
+func (r *Router) SaveRouterState() {
+	r.input.SaveState()
+	err := r.retryQueue.SaveStateToDB(r.dbID)
+	if err != nil {
+		r.logger.Error("coundnt save retryQueue state", "error", err)
+	}
+}
+
+func (r *Router) RouterSaveStateToDB() error {
+	query := `INSERT INTO router (output, input, parser, filter) VALUES (?,?,?,?)`
+	output := BuildOutputDB(r.outputs)
+	var filter interface{}
+	filter = utils.GetNameOfInterface(r.filter)
+	if filter == "" {
+		filter = nil
+	}
+	result, err := r.db.Exec(query, output, utils.GetNameOfInterface(r.input), utils.GetNameOfInterface(r.parser), filter)
+	if err == nil {
+		r.dbID, _ = result.LastInsertId()
+	}
+	return err
+}
+
+func (r *Router) RouterGetIdFromDB() error {
+	query := `SELECT id FROM router where output = ? AND input = ? AND parser = ?`
+	output := BuildOutputDB(r.outputs)
+	result := r.db.QueryRow(query, output, utils.GetNameOfInterface(r.input), utils.GetNameOfInterface(r.parser))
+	var id int64
+	err := result.Scan(&id)
+	if err == nil {
+		r.dbID = id
+		return nil
+	}
+	return err
 }

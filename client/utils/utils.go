@@ -128,6 +128,13 @@ func StructToMap(obj interface{}) map[string]interface{} {
 	return result
 }
 
+func GetNameOfInterface(in interface{}) string {
+	if in == nil {
+		return ""
+	}
+	return reflect.TypeOf(in).Name()
+}
+
 // Merge the maps
 func MergeMaps(m1, m2 map[string]interface{}) map[string]interface{} {
 	for k, v := range m2 {

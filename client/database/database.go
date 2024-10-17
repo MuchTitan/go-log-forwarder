@@ -25,3 +25,8 @@ func GetDB() *sql.DB {
 func CloseDB() {
 	DB.Close()
 }
+
+func CleanUpRetryData() error {
+	_, err := DB.Exec(`DELETE FROM retry_data where status = true`)
+	return err
+}

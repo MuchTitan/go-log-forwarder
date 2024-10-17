@@ -12,10 +12,8 @@ type Stdout struct {
 	Name string
 }
 
-func NewStout() Stdout {
-	return Stdout{
-		Name: "stdout",
-	}
+func NewStdout() Stdout {
+	return Stdout{}
 }
 
 func (st Stdout) Write(data parser.ParsedData) error {

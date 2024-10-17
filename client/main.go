@@ -83,5 +83,10 @@ func main() {
 
 	rt.Stop()
 
+	err = database.CleanUpRetryData()
+	if err != nil {
+		logger.Error("coudnt cleanup retry_data table", "error", err)
+	}
+
 	logger.Info("Log forwarder shutdown complete")
 }

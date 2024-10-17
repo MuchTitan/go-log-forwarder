@@ -4,16 +4,16 @@ import (
 	"bytes"
 	"cmp"
 	"crypto/tls"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log-forwarder-client/config"
+	"log-forwarder-client/database"
 	"log-forwarder-client/parser"
 	"log-forwarder-client/utils"
 	"log/slog"
 	"net/http"
 	"time"
-
-	"github.com/mitchellh/mapstructure"
 )
 
 type Splunk struct {
@@ -27,6 +27,8 @@ type Splunk struct {
 	EventIndex      string                 `mapstructure:"EventIndex"`      // Index to which it should send
 	EventField      map[string]interface{} `mapstructure:"EventField"`      // Additional key value pairs that should be send with every event
 	logger          *slog.Logger
+	httpClient      *http.Client
+	db              *sql.DB
 }
 
 type SplunkPostData struct {
@@ -68,6 +70,20 @@ func NewSplunk(host string, port int, token string, verifyTLS bool, eventKey, ev
 		panic("No Splunk index provided")
 	}
 
+	db := database.GetDB()
+
+	// Setup TLS
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: !verifyTLS,
+		},
+	}
+
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   time.Second * 30,
+	}
+
 	return Splunk{
 		Host:            cmp.Or(host, "localhost"),
 		Port:            cmp.Or(port, 8088),
@@ -79,6 +95,8 @@ func NewSplunk(host string, port int, token string, verifyTLS bool, eventKey, ev
 		EventIndex:      eventIndex,
 		EventField:      eventField,
 		logger:          logger,
+		httpClient:      client,
+		db:              db,
 	}
 }
 
@@ -112,7 +130,6 @@ func (s Splunk) Write(data parser.ParsedData) error {
 
 	err = s.SendDataToSplunk(postDataRaw)
 	if err != nil {
-		logger.Debug("Coundnt send data", "error", err)
 		return err
 	}
 	return nil
@@ -128,19 +145,7 @@ func (s *Splunk) SendDataToSplunk(data []byte) error {
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", fmt.Sprintf("Splunk %s", s.SplunkToken))
 
-	// Setup TLS
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: !s.VerifyTLS,
-		},
-	}
-
-	client := &http.Client{
-		Transport: tr,
-		Timeout:   time.Second * 30,
-	}
-
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("HTTP post failed: %w", err)
 	}
@@ -151,33 +156,4 @@ func (s *Splunk) SendDataToSplunk(data []byte) error {
 	}
 
 	return nil
-}
-
-func SplunkParseConfig(input map[string]interface{}) Splunk {
-	var splunk Splunk
-	err := mapstructure.Decode(input, &splunk)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return splunk
-	}
-
-	return splunk
-}
-
-func (s Splunk) GetState() OutState {
-	state := OutState{
-		Name: "splunk",
-		State: map[string]interface{}{
-			"Host":            s.Host,
-			"Port":            s.Port,
-			"SplunkToken":     s.SplunkToken,
-			"VerifyTLS":       s.VerifyTLS,
-			"EventKey":        s.EventKey,
-			"EventHost":       s.EventHost,
-			"EventSourceType": s.EventSourceType,
-			"EventIndex":      s.EventIndex,
-			"EventField":      s.EventField,
-		},
-	}
-	return state
 }

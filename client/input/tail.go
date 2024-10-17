@@ -61,7 +61,6 @@ func NewTail(glob string, logger *slog.Logger, wg *sync.WaitGroup, parentCtx con
 		ctx:          parentCtx,
 		db:           database.GetDB(),
 	}
-	go tail.Watch()
 	return tail, nil
 }
 
@@ -397,6 +396,10 @@ func (t *Tail) startTail(path string) error {
 
 	t.runningTails[path] = tail
 	return nil
+}
+
+func (t Tail) Start() {
+	go t.Watch()
 }
 
 func (t Tail) Stop() {

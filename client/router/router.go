@@ -55,10 +55,9 @@ func (r *Router) ApplyParser(data *util.Event) error {
 	for _, parser := range parser.AvailableParser {
 		if util.TagMatch(data.InputTag, parser.GetMatch()) {
 			err = parser.Apply(data)
-			if err != nil {
-				continue
+			if err == nil {
+				break
 			}
-			break
 		}
 	}
 	return err
@@ -91,7 +90,7 @@ func (r *Router) StartHandlerLoop() {
 		}
 
 		// If the data passes all filters, send it to outputs
-		r.logger.Debug("Sending this to outputs", "data", data.ParsedData)
+		// r.logger.Debug("Sending this to outputs", "data", data.ParsedData)
 		statusOutputs := []output.Output{}
 		for _, output := range r.outputs {
 			err := output.Write(data)

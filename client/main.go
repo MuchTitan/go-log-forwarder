@@ -39,13 +39,10 @@ func main() {
 	logger.Info("Starting Log forwarder")
 
 	regex := parser.Regex{
-		InputMatch: "foo",
-		Pattern:    `^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$`,
+		Pattern: `^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$`,
 	}
 
-	json := parser.Json{
-		InputMatch: "*",
-	}
+	json := parser.Json{}
 
 	parser.AvailableParser = append(parser.AvailableParser, regex)
 	parser.AvailableParser = append(parser.AvailableParser, json)
@@ -54,23 +51,21 @@ func main() {
 	in, err := input.NewTail("./test/*.log", config.GetLogger())
 	rt.SetInput(in)
 
-	// splunk := output.NewSplunk(
-	// 	"localhost",
-	// 	8088,
-	// 	"397eb6a0-140f-4b0c-a0ff-dd8878672729",
-	// 	false,
-	// 	false,
-	// 	"",
-	// 	"",
-	// 	"apache-log",
-	// 	"test",
-	// 	map[string]interface{}{},
-	// 	logger,
-	// )
+	splunk := output.NewSplunk(
+		"localhost",
+		8088,
+		"397eb6a0-140f-4b0c-a0ff-dd8878672729",
+		false,
+		false,
+		"",
+		"",
+		"apache-log",
+		"test",
+		map[string]interface{}{},
+		logger,
+	)
 
-	stdout := output.NewStdout()
-
-	rt.AddOutput(stdout)
+	rt.AddOutput(splunk)
 
 	rt.Start()
 

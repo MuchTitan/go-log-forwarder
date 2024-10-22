@@ -105,7 +105,6 @@ func (s Splunk) Write(data util.Event) error {
 	logger := config.GetLogger()
 
 	var eventData interface{}
-	var timeValue int64
 	if !s.SendRaw {
 		eventData = util.MergeMaps(data.ParsedData, s.EventField)
 	} else {
@@ -113,7 +112,7 @@ func (s Splunk) Write(data util.Event) error {
 	}
 
 	postData := SplunkPostData{
-		Time:       timeValue,
+		Time:       data.Time,
 		Index:      s.EventIndex,
 		Host:       s.EventHost,
 		Source:     "log-forwarder",

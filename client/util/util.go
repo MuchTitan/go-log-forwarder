@@ -1,18 +1,37 @@
-package utils
+package util
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
 	"reflect"
+	"strings"
 	"syscall"
 	"time"
 )
 
+type Event struct {
+	ParsedData map[string]interface{}
+	InputTag   string
+	Metadata
+	RawData []byte
+	Time    int64
+}
+
+type Metadata struct {
+	FileName   string
+	LineNumber int64
+}
+
 type MultiWriter struct {
 	writers []io.Writer
+}
+
+func NewMultiWriter(writers ...io.Writer) *MultiWriter {
+	return &MultiWriter{writers: writers}
 }
 
 func (mw *MultiWriter) Write(p []byte) (n int, err error) {
@@ -25,28 +44,51 @@ func (mw *MultiWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func NewMultiWriter(writers ...io.Writer) *MultiWriter {
-	return &MultiWriter{writers: writers}
+func TagMatch(inputTag, match string) bool {
+	// Split the pattern by '*' and get the parts.
+	if match == "" && inputTag != "" {
+		return false
+	}
+	parts := strings.Split(match, "*")
+
+	// Keep track of the current position in the input string.
+	pos := 0
+
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+
+		// If it's the first part, the input string must start with this part.
+		if i == 0 && !strings.HasPrefix(inputTag, part) {
+			return false
+		}
+
+		// If it's the last part, the input string must end with this part.
+		if i == len(parts)-1 && !strings.HasSuffix(inputTag, part) {
+			return false
+		}
+
+		// Find the next occurrence of the part in the input string starting from `pos`.
+		index := strings.Index(inputTag[pos:], part)
+		if index == -1 {
+			return false
+		}
+
+		// Move the position forward.
+		pos += index + len(part)
+	}
+
+	return true
 }
 
-func CountLines(filePath string) (int, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return 0, err
+func AppendParsedDataWithMetadata(data *Event) {
+	if data.FileName != "" {
+		data.ParsedData["filename"] = data.FileName
 	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	lines := 0
-	for scanner.Scan() {
-		lines++
+	if data.LineNumber != 0 {
+		data.ParsedData["linenumber"] = data.LineNumber
 	}
-
-	if err := scanner.Err(); err != nil {
-		return 0, err
-	}
-
-	return lines, nil
 }
 
 func RemoveIndexFromSlice[T any](slice []T, index int) []T {
@@ -106,28 +148,6 @@ func GetHostname() string {
 	return hostname
 }
 
-// Convert the struct to a map using reflection
-func StructToMap(obj interface{}) map[string]interface{} {
-	// Get the reflection value
-	val := reflect.ValueOf(obj)
-
-	// Create a map to hold struct fields
-	result := make(map[string]interface{})
-
-	// Iterate over struct fields
-	for i := 0; i < val.NumField(); i++ {
-		field := val.Type().Field(i)
-		value := val.Field(i).Interface()
-		tag := field.Tag.Get("json")
-		if tag == "" {
-			tag = field.Name // Use field name if no json tag
-		}
-		result[tag] = value
-	}
-
-	return result
-}
-
 func GetNameOfInterface(in interface{}) string {
 	if in == nil {
 		return ""
@@ -143,10 +163,14 @@ func MergeMaps(m1, m2 map[string]interface{}) map[string]interface{} {
 	return m1
 }
 
-func ParseTime(timeStr string) (time.Time, error) {
-	parsedTime, err := time.Parse(time.RFC3339, timeStr)
-	if err != nil {
-		return time.Now(), fmt.Errorf("failed to parse Time: %w", err)
+func ExecutePeriodically(ctx context.Context, seconds int, f func()) {
+	timer := time.NewTicker(time.Second * time.Duration(seconds))
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			f()
+		}
 	}
-	return parsedTime, nil
 }

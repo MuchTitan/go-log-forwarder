@@ -2,59 +2,77 @@ package parser
 
 import (
 	"fmt"
+	"log-forwarder-client/util"
 	"regexp"
 )
 
 type Regex struct {
+	InputMatch string
 	Pattern    string
 	TimeKey    string
 	TimeFormat string
 	AllowEmpty bool
 }
 
-func (r Regex) Apply(data [][]byte) (ParsedData, error) {
-	var parsedData ParsedData
+func (r Regex) Apply(data *util.Event) error {
 	re, err := regexp.Compile(r.Pattern)
 	if err != nil {
-		return parsedData, fmt.Errorf("invalid regex pattern: %v", err)
+		return fmt.Errorf("invalid regex pattern: %v", err)
 	}
 
-	if len(data) > 1 {
-		decodeMetadata, err := DecodeMetadata(data[1])
-		if err != nil {
-			return parsedData, err
-		}
-		parsedData.Metadata = decodeMetadata
-	}
-	lineData := string(data[0])
+	lineData := string(data.RawData)
 	matches := re.FindStringSubmatch(lineData)
 
 	if matches == nil {
-		return parsedData, fmt.Errorf("no matches found for line data: %s", lineData)
+		return fmt.Errorf("no matches found for line data: '%s'", lineData)
 	}
 
 	// Extract named groups
-	fields := make(map[string]interface{})
+	decodedData := make(map[string]interface{})
 	for i, name := range re.SubexpNames() {
 		if i != 0 && name != "" {
 			if r.AllowEmpty {
-				fields[name] = matches[i]
+				decodedData[name] = matches[i]
 				continue
 			}
 			value := matches[i]
 			if value != "" {
-				fields[name] = value
+				decodedData[name] = value
+			}
+		}
+	}
+	for i, name := range re.SubexpNames() {
+		if i != 0 && name != "" {
+			if r.AllowEmpty {
+				decodedData[name] = matches[i]
+				continue
+			}
+			value := matches[i]
+			if value != "" {
+				decodedData[name] = value
 			}
 		}
 	}
 
-	parsedData.Data = fields
+	data.ParsedData = decodedData
+	util.AppendParsedDataWithMetadata(data)
 
 	if r.TimeKey == "" || r.TimeFormat == "" {
-		return parsedData, nil
+		return nil
 	}
 
-	parsedData, err = ExtractTimeKey(r.TimeKey, r.TimeFormat, parsedData)
+	err = ExtractTimeKey(r.TimeKey, r.TimeFormat, data)
+	if err != nil {
+		fmt.Println(err)
+	}
 
-	return parsedData, nil
+	return nil
+}
+
+func (r Regex) GetMatch() string {
+	if r.InputMatch == "" {
+		return "*"
+	}
+
+	return r.InputMatch
 }

@@ -1,49 +1,42 @@
 package parser
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
+	"log-forwarder-client/util"
 )
 
 type Json struct {
+	InputMatch string
 	TimeKey    string
 	TimeFormat string
 }
 
-func (j Json) Apply(data [][]byte) (ParsedData, error) {
-	jsonDecoder := json.NewDecoder(bytes.NewReader(data[0]))
-	var parsedData ParsedData
+func (j Json) Apply(data *util.Event) error {
 	var decodedData map[string]interface{}
-	err := jsonDecoder.Decode(&decodedData)
+	err := json.Unmarshal(data.RawData, &decodedData)
 	if err != nil {
-		return parsedData, err
+		return err
 	}
 
-	parsedData.Data = decodedData
+	data.ParsedData = decodedData
 
-	// Check for metadata in input
-	if len(data) > 1 {
-		decodedMetadata, err := DecodeMetadata(data[1])
-		if err != nil {
-			return parsedData, err
-		}
-
-		for key, value := range decodedMetadata {
-			if _, exists := parsedData.Data[key]; !exists {
-				parsedData.Data[key] = value
-			}
-		}
-	}
+	util.AppendParsedDataWithMetadata(data)
 
 	if j.TimeKey == "" || j.TimeFormat == "" {
-		return parsedData, nil
+		return nil
 	}
 
-	parsedData, err = ExtractTimeKey(j.TimeKey, j.TimeFormat, parsedData)
+	err = ExtractTimeKey(j.TimeKey, j.TimeFormat, data)
 	if err != nil {
-		fmt.Println(err)
+		return err
 	}
 
-	return parsedData, nil
+	return nil
+}
+
+func (j Json) GetMatch() string {
+	if j.InputMatch == "" {
+		return "*"
+	}
+	return j.InputMatch
 }

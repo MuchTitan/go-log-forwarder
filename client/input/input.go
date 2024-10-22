@@ -1,14 +1,16 @@
 package input
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log-forwarder-client/util"
+)
 
 var ValidInputs = []string{"tail"}
 
 type Input interface {
 	Start()
-	Read() <-chan [][]byte // array contains data at index 0 and metadata at index 1
+	Read() <-chan util.Event
 	Stop()
-	SaveState()
 }
 
 func buildMetadata(metadata map[string]interface{}) ([]byte, error) {

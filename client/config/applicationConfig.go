@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"log-forwarder-client/utils"
+	"log-forwarder-client/util"
 	"log/slog"
 	"os"
 	"sync"
@@ -35,7 +35,7 @@ func setupLogger(LogLevel int) *slog.Logger {
 	}
 
 	// Setup logger
-	var logOut LogOut = utils.NewMultiWriter(os.Stdout, logFile)
+	var logOut LogOut = util.NewMultiWriter(os.Stdout, logFile)
 	opts := &slog.HandlerOptions{
 		Level: slog.Level(LogLevel),
 	}

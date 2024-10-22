@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"log-forwarder-client/database"
 	"log-forwarder-client/output"
-	"log-forwarder-client/parser"
-	"log-forwarder-client/utils"
+	"log-forwarder-client/util"
 	"log/slog"
 	"strings"
 	"sync"
@@ -15,7 +14,7 @@ import (
 )
 
 type RetryData struct {
-	LineData parser.ParsedData
+	LineData util.Event
 	Outputs  []output.Output
 }
 
@@ -36,7 +35,7 @@ func NewRetryQueue(logger *slog.Logger) *RetryQueue {
 	}
 }
 
-func (rq *RetryQueue) AddRetryData(data parser.ParsedData, outputs []output.Output) {
+func (rq *RetryQueue) AddRetryData(data util.Event, outputs []output.Output) {
 	rq.mu.Lock()
 	defer rq.mu.Unlock()
 	rd := RetryData{
@@ -52,13 +51,13 @@ func (rq *RetryQueue) RetryHandlerLoop(routerID int64) {
 	for {
 		select {
 		case <-ticker.C:
-			rq.mu.Lock()
 			if len(rq.queue) > 100 {
 				rq.logger.Warn("More than 100 elements in RetryQueue", "amount", len(rq.queue))
 			}
 
 			var remainingData []RetryData
 			for _, data := range rq.queue {
+				rq.mu.Lock()
 				allSucceeded := true
 				var failedOutputs []output.Output
 
@@ -83,11 +82,11 @@ func (rq *RetryQueue) RetryHandlerLoop(routerID int64) {
 						rq.logger.Error("coundnt set success state in retry_data", "error", err, "routerID", routerID)
 					}
 				}
+				rq.mu.Unlock()
 			}
 
 			// Update the queue with only the remaining data
 			rq.queue = remainingData
-			rq.mu.Unlock()
 
 		case <-rq.doneCh:
 			return
@@ -152,7 +151,7 @@ func (rq *RetryQueue) LoadDataFromDB(routerID int64, availableOutputs []output.O
 
 		for _, outputName := range outputNames {
 			for _, output := range availableOutputs {
-				if utils.GetNameOfInterface(output) == outputName {
+				if util.GetNameOfInterface(output) == outputName {
 					queueData.Outputs = append(queueData.Outputs, output)
 				}
 			}
@@ -189,7 +188,7 @@ func (rq *RetryQueue) LoadDataFromDB(routerID int64, availableOutputs []output.O
 func BuildOutputDB(outputs []output.Output) string {
 	out := ""
 	for _, output := range outputs {
-		out += utils.GetNameOfInterface(output)
+		out += util.GetNameOfInterface(output)
 		out += ";"
 	}
 	return out[:len(out)-1]

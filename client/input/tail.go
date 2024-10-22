@@ -7,13 +7,12 @@ import (
 	"fmt"
 	"io"
 	"log-forwarder-client/database"
-	"log-forwarder-client/utils"
+	"log-forwarder-client/util"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -28,7 +27,7 @@ type TailFile struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	doneCh     chan struct{}
-	sendCh     chan [][]byte
+	sendCh     chan util.Event
 	offset     int64 // Holds the current file offset
 	startLine  int64 // The line number to start reading from
 	lineNumber int64 // Tracks the current line number
@@ -39,9 +38,9 @@ type Tail struct {
 	glob         string
 	runningTails map[string]*TailFile
 	logger       *slog.Logger
-	sendChan     chan [][]byte // chan for all writes from the file tails
+	sendChan     chan util.Event // chan for all writes from the file tails
 	ctx          context.Context
-	waitGroup    *sync.WaitGroup
+	cancel       context.CancelFunc
 	db           *sql.DB
 }
 
@@ -51,21 +50,22 @@ type TailFileState struct {
 	InodeNumber  uint64
 }
 
-func NewTail(glob string, logger *slog.Logger, wg *sync.WaitGroup, parentCtx context.Context) (Tail, error) {
+func NewTail(glob string, logger *slog.Logger) (Tail, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	tail := Tail{
 		glob:         glob,
 		logger:       logger,
 		runningTails: make(map[string]*TailFile),
-		sendChan:     make(chan [][]byte),
-		waitGroup:    wg,
-		ctx:          parentCtx,
+		sendChan:     make(chan util.Event),
+		ctx:          ctx,
+		cancel:       cancel,
 		db:           database.GetDB(),
 	}
 	return tail, nil
 }
 
 // NewTailFile creates a new TailFile instance starting from a specific line
-func NewTailFile(filePath string, sendCh chan [][]byte, logger *slog.Logger, parentCtx context.Context, db *sql.DB) (*TailFile, error) {
+func NewTailFile(filePath string, sendCh chan util.Event, logger *slog.Logger, parentCtx context.Context, db *sql.DB) (*TailFile, error) {
 	// Open the file
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -129,9 +129,9 @@ func GetFileInfo(path string) (uint64, []byte, error) {
 	var inodeNumber uint64
 	var checksum []byte
 
-	inodeNumber, err = utils.GetInodeNumber(path)
+	inodeNumber, _ = util.GetInodeNumber(path)
 
-	checksum, err = utils.CreateChecksumForFirstThreeLines(path)
+	checksum, err = util.CreateChecksumForFirstThreeLines(path)
 
 	return inodeNumber, checksum, err
 }
@@ -187,7 +187,7 @@ func (tf *TailFile) start() {
 		} else {
 		}
 	} else {
-		tf.logger.Debug("Could not load state, starting from the beginning", "error", err)
+		tf.logger.Debug("Could not load state, starting from the beginning", "filepath", tf.filePath)
 	}
 
 	// Start by reading all existing lines up to the target line
@@ -233,18 +233,7 @@ func (tf *TailFile) readExistingLines() {
 		tf.lineNumber++
 		line := strings.TrimSpace(lineRaw)
 
-		var result [][]byte
-		result = append(result, []byte(line))
-
-		metadata, err := buildMetadata(map[string]interface{}{
-			"filepath":   tf.filePath,
-			"linenumber": tf.lineNumber,
-		})
-		if err != nil {
-			tf.logger.Warn("Coundnt build metadata", "error", err)
-		}
-
-		result = append(result, metadata)
+		result := tf.BuildResult(line)
 
 		if tf.lineNumber > tf.startLine {
 			select {
@@ -279,18 +268,8 @@ func (tf *TailFile) readNewLines() {
 		tf.lineNumber++
 		line := strings.TrimSpace(lineRaw)
 
-		var result [][]byte
-		result = append(result, []byte(line))
+		result := tf.BuildResult(line)
 
-		metadata, err := buildMetadata(map[string]interface{}{
-			"filepath":   tf.filePath,
-			"linenumber": tf.lineNumber,
-		})
-		if err != nil {
-			tf.logger.Warn("Coundnt build metadata", "error", err)
-		}
-
-		result = append(result, metadata)
 		select {
 		case <-tf.ctx.Done():
 			return
@@ -300,10 +279,10 @@ func (tf *TailFile) readNewLines() {
 	}
 }
 
-func (t *Tail) getDirContent(glob string) []string {
+func (t *Tail) getDirContent(glob string) ([]string, error) {
 	filepathsFromGlob, err := filepath.Glob(glob)
 	if err != nil {
-		return []string{}
+		return []string{}, err
 	}
 
 	filepaths := []string{}
@@ -325,10 +304,10 @@ func (t *Tail) getDirContent(glob string) []string {
 		filepaths = append(filepaths, filepath)
 	}
 
-	return filepaths
+	return filepaths, nil
 }
 
-func (t Tail) Read() <-chan [][]byte {
+func (t Tail) Read() <-chan util.Event {
 	return t.sendChan
 }
 
@@ -340,12 +319,9 @@ func (t *Tail) Watch() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	t.waitGroup.Add(1)
-	defer t.waitGroup.Done()
 	for {
 		select {
 		case <-t.ctx.Done():
-			t.Stop()
 			return
 		case <-ticker.C:
 			if err := t.checkDirectory(); err != nil {
@@ -364,7 +340,10 @@ func getKeysFromMap[T any | *TailFile](input map[string]T) []string {
 }
 
 func (t *Tail) checkDirectory() error {
-	files := t.getDirContent(t.glob)
+	files, err := t.getDirContent(t.glob)
+	if err != nil {
+		return err
+	}
 
 	for _, file := range files {
 		if _, exists := t.runningTails[file]; !exists {
@@ -399,13 +378,21 @@ func (t *Tail) startTail(path string) error {
 }
 
 func (t Tail) Start() {
+	go util.ExecutePeriodically(t.ctx, 30, t.SaveState)
 	go t.Watch()
 }
 
 func (t Tail) Stop() {
+	if t.ctx != nil {
+		t.cancel()
+	}
+
 	for _, tail := range t.runningTails {
 		tail.stop()
 	}
+
+	t.SaveState()
+
 	close(t.sendChan)
 }
 
@@ -416,4 +403,18 @@ func (t Tail) SaveState() {
 			t.logger.Error("Failed to save state", "error", err, "path", tail.filePath)
 		}
 	}
+}
+
+func (tf *TailFile) BuildResult(data string) util.Event {
+	var result util.Event
+	result.RawData = []byte(data)
+	result.Time = time.Now().Unix()
+
+	metadata := util.Metadata{
+		FileName:   tf.filePath,
+		LineNumber: tf.lineNumber,
+	}
+	result.Metadata = metadata
+
+	return result
 }

@@ -3,22 +3,26 @@ package output
 import (
 	"encoding/json"
 	"fmt"
-	"log-forwarder-client/parser"
-	"log-forwarder-client/utils"
+	"log-forwarder-client/util"
 	"os"
 )
 
 type Stdout struct {
-	Name string
+	Name    string
+	SendRaw bool
 }
 
 func NewStdout() Stdout {
 	return Stdout{}
 }
 
-func (st Stdout) Write(data parser.ParsedData) error {
-	dataWithMetadata := utils.MergeMaps(data.Data, data.Metadata)
-	byteData, _ := json.Marshal(dataWithMetadata)
-	_, err := fmt.Fprintln(os.Stdout, string(byteData))
+func (sto Stdout) Write(data util.Event) error {
+	var event []byte
+	if !sto.SendRaw {
+		event, _ = json.Marshal(data.ParsedData)
+	} else {
+		event = data.RawData
+	}
+	_, err := fmt.Fprintln(os.Stdout, string(event))
 	return err
 }

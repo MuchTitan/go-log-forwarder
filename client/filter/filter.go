@@ -1,7 +1,10 @@
 package filter
 
-import "log-forwarder-client/parser"
+import "log-forwarder-client/util"
+
+var AvailableFilters []Filter
 
 type Filter interface {
-	Apply(data parser.ParsedData) (parser.ParsedData, bool)
+	GetMatch() string
+	Apply(*util.Event) (bool, error)
 }

@@ -4,17 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log-forwarder-client/util"
 	"time"
 )
 
-type ParsedData struct {
-	Data     map[string]interface{}
-	Metadata map[string]interface{}
-	Time     int64
-}
+var AvailableParser []Parser
 
 type Parser interface {
-	Apply(data [][]byte) (ParsedData, error)
+	GetMatch() string
+	Apply(*util.Event) error
 }
 
 func ParseTime(inTime, timeFormat string) (int64, error) {
@@ -36,20 +34,19 @@ func DecodeMetadata(metadata []byte) (map[string]interface{}, error) {
 	return decodedMetadata, nil
 }
 
-func ExtractTimeKey(timeKey, timeFormat string, data ParsedData) (ParsedData, error) {
-	if time, exists := data.Data[timeKey]; exists {
+func ExtractTimeKey(timeKey, timeFormat string, data *util.Event) error {
+	if time, exists := data.ParsedData[timeKey]; exists {
 		var timeStr string
 		var ok bool
 		if timeStr, ok = time.(string); !ok {
-			return data, fmt.Errorf("Cound parse timeKey into string")
+			return fmt.Errorf("Cound parse timeKey into string")
 		}
 		parsedTime, err := ParseTime(timeStr, timeFormat)
 		if err != nil {
-			return data, err
+			return err
 		}
-		delete(data.Data, timeKey)
+		delete(data.ParsedData, timeKey)
 		data.Time = parsedTime
-		return data, nil
 	}
-	return data, nil
+	return nil
 }

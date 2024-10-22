@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"log-forwarder-client/config"
 	"log-forwarder-client/database"
 	"log-forwarder-client/input"
@@ -22,8 +21,6 @@ var (
 )
 
 func main() {
-	rootCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	wg = &sync.WaitGroup{}
 
 	// Get configuration
@@ -41,35 +38,39 @@ func main() {
 
 	logger.Info("Starting Log forwarder")
 
-	rt := router.NewRouter(wg, rootCtx, logger)
-	in, err := input.NewTail("./test/*.log", config.GetLogger(), wg, rootCtx)
-	if err != nil {
-		panic(err)
+	regex := parser.Regex{
+		InputMatch: "foo",
+		Pattern:    `^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$`,
 	}
+
+	json := parser.Json{
+		InputMatch: "*",
+	}
+
+	parser.AvailableParser = append(parser.AvailableParser, regex)
+	parser.AvailableParser = append(parser.AvailableParser, json)
+
+	rt := router.NewRouter(wg, logger)
+	in, err := input.NewTail("./test/*.log", config.GetLogger())
 	rt.SetInput(in)
 
-	regexParser := parser.Regex{
-		Pattern:    `^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$`,
-		TimeKey:    "time",
-		TimeFormat: "%d/%b/%Y:%H:%M:%S %z",
-	}
+	// splunk := output.NewSplunk(
+	// 	"localhost",
+	// 	8088,
+	// 	"397eb6a0-140f-4b0c-a0ff-dd8878672729",
+	// 	false,
+	// 	false,
+	// 	"",
+	// 	"",
+	// 	"apache-log",
+	// 	"test",
+	// 	map[string]interface{}{},
+	// 	logger,
+	// )
 
-	rt.SetParser(regexParser)
+	stdout := output.NewStdout()
 
-	splunk := output.NewSplunk(
-		"localhost",
-		8088,
-		"397eb6a0-140f-4b0c-a0ff-dd8878672729",
-		false,
-		"",
-		"",
-		"apache-log",
-		"test",
-		map[string]interface{}{},
-		logger,
-	)
-
-	rt.AddOutput(splunk)
+	rt.AddOutput(stdout)
 
 	rt.Start()
 
@@ -78,8 +79,6 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 	logger.Info("Log forwarder shutdown started")
-
-	cancel()
 
 	rt.Stop()
 

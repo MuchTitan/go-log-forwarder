@@ -9,8 +9,7 @@ import (
 	"fmt"
 	"log-forwarder-client/config"
 	"log-forwarder-client/database"
-	"log-forwarder-client/parser"
-	"log-forwarder-client/utils"
+	"log-forwarder-client/util"
 	"log/slog"
 	"net/http"
 	"time"
@@ -26,18 +25,19 @@ type Splunk struct {
 	EventSourceType string                 `mapstructure:"EventSourceType"` // SourceType of the send event
 	EventIndex      string                 `mapstructure:"EventIndex"`      // Index to which it should send
 	EventField      map[string]interface{} `mapstructure:"EventField"`      // Additional key value pairs that should be send with every event
+	SendRaw         bool
 	logger          *slog.Logger
 	httpClient      *http.Client
 	db              *sql.DB
 }
 
 type SplunkPostData struct {
-	Time       int64                  `json:"time"`
-	Event      map[string]interface{} `json:"event"` // here lives the data
-	Index      string                 `json:"index"`
-	Source     string                 `json:"source"`
-	Sourcetype string                 `json:"sourcetype"`
-	Host       string                 `json:"host"`
+	Time       int64       `json:"time"`
+	Event      interface{} `json:"event"` // here lives the data
+	Index      string      `json:"index"`
+	Source     string      `json:"source"`
+	Sourcetype string      `json:"sourcetype"`
+	Host       string      `json:"host"`
 }
 
 // NewSplunk is a constructor function that creates and returns a new instance of the Splunk struct.
@@ -61,7 +61,7 @@ type SplunkPostData struct {
 // Panics:
 //   - If the token is empty, indicating that no Splunk token was provided.
 //   - If the eventIndex is empty, indicating that no Splunk index was provided.
-func NewSplunk(host string, port int, token string, verifyTLS bool, eventKey, eventHost, eventSourceType, eventIndex string, eventField map[string]interface{}, logger *slog.Logger) Splunk {
+func NewSplunk(host string, port int, token string, verifyTLS, sendRaw bool, eventKey, eventHost, eventSourceType, eventIndex string, eventField map[string]interface{}, logger *slog.Logger) Splunk {
 	if token == "" {
 		panic("No Splunk token provided")
 	}
@@ -89,8 +89,9 @@ func NewSplunk(host string, port int, token string, verifyTLS bool, eventKey, ev
 		Port:            cmp.Or(port, 8088),
 		SplunkToken:     token,
 		VerifyTLS:       verifyTLS,
+		SendRaw:         sendRaw,
 		EventKey:        eventKey,
-		EventHost:       cmp.Or(eventHost, utils.GetHostname()),
+		EventHost:       cmp.Or(eventHost, util.GetHostname()),
 		EventSourceType: cmp.Or(eventSourceType, "JSON"),
 		EventIndex:      eventIndex,
 		EventField:      eventField,
@@ -100,17 +101,15 @@ func NewSplunk(host string, port int, token string, verifyTLS bool, eventKey, ev
 	}
 }
 
-func (s Splunk) Write(data parser.ParsedData) error {
+func (s Splunk) Write(data util.Event) error {
 	logger := config.GetLogger()
 
-	eventData := utils.MergeMaps(data.Data, s.EventField)
-	eventData = utils.MergeMaps(data.Data, data.Metadata)
-
+	var eventData interface{}
 	var timeValue int64
-	if data.Time != 0 {
-		timeValue = data.Time
+	if !s.SendRaw {
+		eventData = util.MergeMaps(data.ParsedData, s.EventField)
 	} else {
-		timeValue = time.Now().Unix()
+		eventData = string(data.RawData)
 	}
 
 	postData := SplunkPostData{
@@ -130,6 +129,7 @@ func (s Splunk) Write(data parser.ParsedData) error {
 
 	err = s.SendDataToSplunk(postDataRaw)
 	if err != nil {
+		logger.Error("Coundnt send to splunk", "error", err)
 		return err
 	}
 	return nil

@@ -14,8 +14,8 @@ import (
 )
 
 type RetryData struct {
-	LineData util.Event
 	Outputs  []output.Output
+	LineData util.Event
 }
 
 type RetryQueue struct {

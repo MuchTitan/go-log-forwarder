@@ -1,0 +1,35 @@
+System:
+  loglevel: DEBUG
+  dbfile: "./state.db"
+  logfile: "./app.log"
+
+Inputs:
+  - Name: "tail"
+    Tag: "app-log"
+    Glob: "./test/*"
+
+Parsers:
+  - Name: "json"
+    Match: "app*"
+  - Name: "regex"
+    Match: "app*"
+    Pattern: '^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$'
+    AllowEmtpy: false
+
+Outputs:
+  - Name: "splunk"
+    Match: "*"
+    Host: "localhost"
+    Port: 8088
+    Token: "${Splunk_Token}"
+    VerifyTLS: false
+    SendRaw: false
+    EventSourceType: "application-log"
+    EventIndex: "test"
+    EventFields:
+      baz: 1
+      foo: "bar"
+
+  - Name: "stdout"
+    Match: "*.log"
+    SendRaw: true

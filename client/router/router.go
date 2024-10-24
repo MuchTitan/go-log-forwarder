@@ -26,10 +26,11 @@ type Router struct {
 	dbID       int64
 }
 
-func NewRouter(inWg *sync.WaitGroup, logger *slog.Logger) *Router {
+func NewRouter(logger *slog.Logger) *Router {
 	ctx, cancel := context.WithCancel(context.Background())
+	wg := &sync.WaitGroup{}
 	return &Router{
-		wg:         inWg,
+		wg:         wg,
 		ctx:        ctx,
 		cancel:     cancel,
 		logger:     logger,
@@ -48,6 +49,10 @@ func (r *Router) SetInput(input input.Input) {
 		return
 	}
 	r.input = input
+}
+
+func (r *Router) GetInputTag() string {
+	return r.input.GetTag()
 }
 
 func (r *Router) ApplyParser(data *util.Event) error {
@@ -69,10 +74,9 @@ func (r *Router) ApplyFilter(data *util.Event) (bool, error) {
 	for _, filter := range filter.AvailableFilters {
 		if util.TagMatch(data.InputTag, filter.GetMatch()) {
 			pass, err = filter.Apply(data)
-			if err != nil || !pass {
-				continue
+			if err == nil && pass {
+				break
 			}
-			break
 		}
 	}
 	return pass, err
@@ -89,28 +93,24 @@ func (r *Router) StartHandlerLoop() {
 			continue
 		}
 
-		// If the data passes all filters, send it to outputs
-		// r.logger.Debug("Sending this to outputs", "data", data.ParsedData)
 		statusOutputs := []output.Output{}
 		for _, output := range r.outputs {
 			err := output.Write(data)
 			if err != nil {
+				r.logger.Debug("Error while sending", "error", err, "output", util.GetNameOfInterface(output))
 				statusOutputs = append(statusOutputs, output)
 			}
 
-			// Add data to retryQueue if necassary
-			if len(statusOutputs) > 0 {
-				r.retryQueue.AddRetryData(data, statusOutputs)
-			}
+		}
+
+		// Add data to retryQueue if necassary
+		if len(statusOutputs) > 0 {
+			r.retryQueue.AddRetryData(data, statusOutputs)
 		}
 	}
 }
 
 func (r *Router) Start() {
-	if r.input == nil {
-		r.logger.Error("Coundnt start router no input is defiend")
-		return
-	}
 	if len(r.outputs) < 1 {
 		r.logger.Error("Coundnt start router no outputs are defiend")
 		return

@@ -16,14 +16,9 @@ import (
 type Event struct {
 	ParsedData map[string]interface{}
 	InputTag   string
-	Metadata
-	RawData []byte
-	Time    int64
-}
-
-type Metadata struct {
-	FileName   string
-	LineNumber int64
+	Metadata   map[string]interface{}
+	RawData    []byte
+	Time       int64
 }
 
 type MultiWriter struct {
@@ -32,6 +27,10 @@ type MultiWriter struct {
 
 func NewMultiWriter(writers ...io.Writer) *MultiWriter {
 	return &MultiWriter{writers: writers}
+}
+
+func (mw *MultiWriter) AddWriter(w io.Writer) {
+	mw.writers = append(mw.writers, w)
 }
 
 func (mw *MultiWriter) Write(p []byte) (n int, err error) {
@@ -80,15 +79,6 @@ func TagMatch(inputTag, match string) bool {
 	}
 
 	return true
-}
-
-func AppendParsedDataWithMetadata(data *Event) {
-	if data.FileName != "" {
-		data.ParsedData["filename"] = data.FileName
-	}
-	if data.LineNumber != 0 {
-		data.ParsedData["linenumber"] = data.LineNumber
-	}
 }
 
 func RemoveIndexFromSlice[T any](slice []T, index int) []T {

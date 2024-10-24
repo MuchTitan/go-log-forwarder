@@ -3,12 +3,26 @@ package parser
 import (
 	"encoding/json"
 	"log-forwarder-client/util"
+	"log/slog"
+
+	"github.com/mitchellh/mapstructure"
 )
 
 type Json struct {
-	InputMatch string
-	TimeKey    string
-	TimeFormat string
+	logger      *slog.Logger
+	ParserMatch string `mapstructure:"Match"`
+	TimeKey     string `mapstructure:"TimeKey"`
+	TimeFormat  string `mapstructure:"TimeFormat"`
+}
+
+func ParseJson(input map[string]interface{}, logger *slog.Logger) (Json, error) {
+	jsonObject := Json{}
+	err := mapstructure.Decode(input, &jsonObject)
+	if err != nil {
+		return jsonObject, err
+	}
+	jsonObject.logger = logger
+	return jsonObject, nil
 }
 
 func (j Json) Apply(data *util.Event) error {
@@ -20,7 +34,7 @@ func (j Json) Apply(data *util.Event) error {
 
 	data.ParsedData = decodedData
 
-	util.AppendParsedDataWithMetadata(data)
+	data.ParsedData = util.MergeMaps(data.ParsedData, data.Metadata)
 
 	if j.TimeKey == "" || j.TimeFormat == "" {
 		return nil
@@ -35,8 +49,8 @@ func (j Json) Apply(data *util.Event) error {
 }
 
 func (j Json) GetMatch() string {
-	if j.InputMatch == "" {
+	if j.ParserMatch == "" {
 		return "*"
 	}
-	return j.InputMatch
+	return j.ParserMatch
 }

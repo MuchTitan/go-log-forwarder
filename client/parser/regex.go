@@ -3,15 +3,35 @@ package parser
 import (
 	"fmt"
 	"log-forwarder-client/util"
+	"log/slog"
 	"regexp"
+
+	"github.com/mitchellh/mapstructure"
 )
 
 type Regex struct {
-	InputMatch string
-	Pattern    string
-	TimeKey    string
-	TimeFormat string
-	AllowEmpty bool
+	logger      *slog.Logger
+	FilterMatch string            `mapstructure:"Match"`
+	Pattern     string            `mapstructure:"Pattern"`
+	TimeKey     string            `mapstructure:"TimeKey"`
+	TimeFormat  string            `mapstructure:"TimeFormat"`
+	Types       map[string]string `mapstructure:"Types"`
+	AllowEmpty  bool              `mapstructure:"AllowEmpty"`
+}
+
+func ParseRegex(input map[string]interface{}, logger *slog.Logger) (Regex, error) {
+	regex := Regex{}
+	err := mapstructure.Decode(input, &regex)
+	if err != nil {
+		return regex, err
+	}
+
+	if regex.Pattern == "" {
+		return regex, fmt.Errorf("For regex parser is not Pattern defiend")
+	}
+	regex.logger = logger
+
+	return regex, nil
 }
 
 func (r Regex) Apply(data *util.Event) error {
@@ -55,7 +75,7 @@ func (r Regex) Apply(data *util.Event) error {
 	}
 
 	data.ParsedData = decodedData
-	util.AppendParsedDataWithMetadata(data)
+	data.ParsedData = util.MergeMaps(data.ParsedData, data.Metadata)
 
 	if r.TimeKey == "" || r.TimeFormat == "" {
 		return nil
@@ -70,9 +90,9 @@ func (r Regex) Apply(data *util.Event) error {
 }
 
 func (r Regex) GetMatch() string {
-	if r.InputMatch == "" {
+	if r.FilterMatch == "" {
 		return "*"
 	}
 
-	return r.InputMatch
+	return r.FilterMatch
 }

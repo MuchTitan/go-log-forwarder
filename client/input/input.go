@@ -5,10 +5,11 @@ import (
 	"log-forwarder-client/util"
 )
 
-var ValidInputs = []string{"tail"}
+var AvailableInputs []Input
 
 type Input interface {
 	Start()
+	GetTag() string
 	Read() <-chan util.Event
 	Stop()
 }

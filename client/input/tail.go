@@ -16,11 +16,13 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/mitchellh/mapstructure"
 )
 
 // TailFile holds the file and necessary channels for tailing
 type TailFile struct {
 	filePath   string
+	inputTag   string
 	logger     *slog.Logger
 	file       *os.File
 	watcher    *fsnotify.Watcher
@@ -35,7 +37,8 @@ type TailFile struct {
 }
 
 type Tail struct {
-	glob         string
+	Glob         string `mapstructure:"Glob"`
+	InputTag     string `mapstructure:"Tag"`
 	runningTails map[string]*TailFile
 	logger       *slog.Logger
 	sendChan     chan util.Event // chan for all writes from the file tails
@@ -50,22 +53,31 @@ type TailFileState struct {
 	InodeNumber  uint64
 }
 
-func NewTail(glob string, logger *slog.Logger) (Tail, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func ParseTail(input map[string]interface{}, logger *slog.Logger) (Tail, error) {
 	tail := Tail{
-		glob:         glob,
 		logger:       logger,
 		runningTails: make(map[string]*TailFile),
 		sendChan:     make(chan util.Event),
-		ctx:          ctx,
-		cancel:       cancel,
-		db:           database.GetDB(),
 	}
+	err := mapstructure.Decode(input, &tail)
+	if err != nil {
+		return tail, err
+	}
+
+	if tail.Glob == "" {
+		return tail, fmt.Errorf("No Glob provided in tail input")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	tail.ctx = ctx
+	tail.cancel = cancel
+	tail.db = database.GetDB()
+
 	return tail, nil
 }
 
 // NewTailFile creates a new TailFile instance starting from a specific line
-func NewTailFile(filePath string, sendCh chan util.Event, logger *slog.Logger, parentCtx context.Context, db *sql.DB) (*TailFile, error) {
+func NewTailFile(filePath, inputTag string, sendCh chan util.Event, logger *slog.Logger, parentCtx context.Context, db *sql.DB) (*TailFile, error) {
 	// Open the file
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -98,6 +110,7 @@ func NewTailFile(filePath string, sendCh chan util.Event, logger *slog.Logger, p
 		cancel:     cancel,
 		lineNumber: 0,
 		db:         db,
+		inputTag:   inputTag,
 	}, nil
 }
 
@@ -314,7 +327,7 @@ func (t Tail) Read() <-chan util.Event {
 func (t *Tail) Watch() {
 	err := t.checkDirectory()
 	if err != nil {
-		t.logger.Error("Failed to check directory", "error", err, "path", t.glob)
+		t.logger.Error("Failed to check directory", "error", err, "path", t.Glob)
 	}
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -325,7 +338,7 @@ func (t *Tail) Watch() {
 			return
 		case <-ticker.C:
 			if err := t.checkDirectory(); err != nil {
-				t.logger.Error("Failed to check directory", "error", err, "path", t.glob)
+				t.logger.Error("Failed to check directory", "error", err, "path", t.Glob)
 			}
 		}
 	}
@@ -340,7 +353,7 @@ func getKeysFromMap[T any | *TailFile](input map[string]T) []string {
 }
 
 func (t *Tail) checkDirectory() error {
-	files, err := t.getDirContent(t.glob)
+	files, err := t.getDirContent(t.Glob)
 	if err != nil {
 		return err
 	}
@@ -348,7 +361,7 @@ func (t *Tail) checkDirectory() error {
 	for _, file := range files {
 		if _, exists := t.runningTails[file]; !exists {
 			if err := t.startTail(file); err != nil {
-				t.logger.Error("Failed to start tail", "error", err, "path", t.glob)
+				t.logger.Error("Failed to start tail", "error", err, "path", t.Glob)
 			}
 		}
 	}
@@ -366,7 +379,7 @@ func (t *Tail) checkDirectory() error {
 }
 
 func (t *Tail) startTail(path string) error {
-	tail, err := NewTailFile(path, t.sendChan, t.logger, t.ctx, t.db)
+	tail, err := NewTailFile(path, t.InputTag, t.sendChan, t.logger, t.ctx, t.db)
 	if err != nil {
 		return err
 	}
@@ -396,6 +409,13 @@ func (t Tail) Stop() {
 	close(t.sendChan)
 }
 
+func (t Tail) GetTag() string {
+	if t.InputTag == "" {
+		return "*"
+	}
+	return t.InputTag
+}
+
 func (t Tail) SaveState() {
 	for _, tail := range t.runningTails {
 		err := tail.SaveTailFileStateToDB()
@@ -410,11 +430,12 @@ func (tf *TailFile) BuildResult(data string) util.Event {
 	result.RawData = []byte(data)
 	result.Time = time.Now().Unix()
 
-	metadata := util.Metadata{
-		FileName:   tf.filePath,
-		LineNumber: tf.lineNumber,
+	metadata := map[string]interface{}{
+		"filename":   tf.filePath,
+		"linenumber": tf.lineNumber,
 	}
 	result.Metadata = metadata
+	result.InputTag = tf.inputTag
 
 	return result
 }

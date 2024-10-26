@@ -3,6 +3,9 @@ package database
 import (
 	"database/sql"
 	"log"
+	"os"
+	"path/filepath"
+	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -91,4 +94,39 @@ func createRetryDataTable() error {
 		return err
 	}
 	return nil
+}
+
+func SetupTestDB(t *testing.T) *sql.DB {
+	// Create a temporary directory for the test database
+	tmpDir, err := os.MkdirTemp("", "test-db-*")
+	if err != nil {
+		t.Fatalf("Failed to create temporary directory: %v", err)
+	}
+
+	// Create a temporary database file
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// Open the database
+	err = OpenDB(dbPath)
+	if err != nil {
+		os.RemoveAll(tmpDir)
+		t.Fatalf("Failed to open database: %v", err)
+	}
+
+	// Register cleanup function
+	t.Cleanup(func() {
+		CloseDB()
+		os.RemoveAll(tmpDir)
+	})
+
+	// Clear any existing data
+	tables := []string{"tail_file_state", "router", "retry_data"}
+	for _, table := range tables {
+		_, err := DB.Exec("DELETE FROM " + table)
+		if err != nil {
+			t.Fatalf("Failed to clean table %s: %v", table, err)
+		}
+	}
+
+	return DB
 }

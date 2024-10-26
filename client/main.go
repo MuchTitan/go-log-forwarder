@@ -10,12 +10,10 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 )
 
 var (
-	wg            *sync.WaitGroup
 	cfg           *config.SystemConfig
 	logger        *slog.Logger
 	runningRouter []*router.Router

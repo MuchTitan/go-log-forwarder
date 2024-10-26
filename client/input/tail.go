@@ -68,6 +68,10 @@ func ParseTail(input map[string]interface{}, logger *slog.Logger) (Tail, error) 
 		return tail, fmt.Errorf("No Glob provided in tail input")
 	}
 
+	if _, err := filepath.Glob(tail.Glob); err != nil {
+		return tail, fmt.Errorf("Malformed Glob provided in tail input")
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	tail.ctx = ctx
 	tail.cancel = cancel
@@ -332,6 +336,7 @@ func (t *Tail) Watch() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
+	t.logger.Info("Initial tails", "tails", getKeysFromMap(t.runningTails))
 	for {
 		select {
 		case <-t.ctx.Done():
@@ -431,8 +436,7 @@ func (tf *TailFile) BuildResult(data string) util.Event {
 	result.Time = time.Now().Unix()
 
 	metadata := map[string]interface{}{
-		"filename":   tf.filePath,
-		"linenumber": tf.lineNumber,
+		"filename": tf.filePath,
 	}
 	result.Metadata = metadata
 	result.InputTag = tf.inputTag

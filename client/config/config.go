@@ -72,7 +72,7 @@ func LoadSystemConfig(data map[string]interface{}) (*SystemConfig, error) {
 	// Setup Logger
 	writer := util.NewMultiWriter(os.Stderr)
 	if sysConfig.LogFile != "" {
-		logFile, err := os.OpenFile(sysConfig.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		logFile, err := os.OpenFile(sysConfig.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return nil, err
 		}

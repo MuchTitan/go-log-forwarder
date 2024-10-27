@@ -4,11 +4,12 @@ System:
   logfile: "./app.log"
 
 Inputs:
-  - Name: "http"
-    VerifyTLS: false
   # - Name: "tail"
   #   Tag: "app-log"
   #   Glob: "./test/*"
+  - Name: "udp"
+    Tag: "app-log"
+    Port: 1234
 
 Parsers:
   - Name: "json"

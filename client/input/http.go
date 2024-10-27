@@ -16,6 +16,8 @@ import (
 	"github.com/mitchellh/mapstructure"
 )
 
+const DefaultHttpBufferSize int64 = 5 << 20 // 5MB
+
 type InHTTP struct {
 	logger     *slog.Logger
 	sendCh     chan util.Event
@@ -38,7 +40,7 @@ func ParseHttp(input map[string]interface{}, logger *slog.Logger) (InHTTP, error
 
 	httpObject.ListenAddr = cmp.Or(httpObject.ListenAddr, "0.0.0.0")
 	httpObject.Port = cmp.Or(httpObject.Port, 8080)
-	httpObject.BufferSize = cmp.Or(httpObject.BufferSize, (5 * 1024 * 1024))
+	httpObject.BufferSize = cmp.Or(httpObject.BufferSize, DefaultHttpBufferSize)
 
 	httpObject.logger = logger
 
@@ -108,7 +110,7 @@ func (h InHTTP) handleReq(w http.ResponseWriter, r *http.Request) {
 		logLines <- util.Event{
 			RawData:  line,
 			Time:     currTime,
-			InputTag: h.InputTag,
+			InputTag: h.GetTag(),
 		}
 	}
 

@@ -162,6 +162,14 @@ func DecodeInputs(inputsList []map[string]interface{}) {
 			cfg.Logger.Debug("Loaded this input http config", "Config", http)
 			input.AvailableInputs = append(input.AvailableInputs, http)
 
+		case "tcp":
+			tcp, err := input.ParseTCP(inputCfg, cfg.Logger)
+			if err != nil {
+				panic(err)
+			}
+			cfg.Logger.Debug("Loaded this input tcp config", "Config", tcp)
+			input.AvailableInputs = append(input.AvailableInputs, tcp)
+
 		default:
 			cfg.Logger.Warn("Not a implemented Input", "Name", inputCfg["Name"])
 		}

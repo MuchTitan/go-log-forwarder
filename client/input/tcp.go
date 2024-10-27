@@ -15,40 +15,10 @@ import (
 )
 
 const (
-	DefaultTCPBufferSize int64 = 64 << 10         // 64KB
-	defaultTimeout             = 10 * time.Minute // 10 minute timeout
-	maxConnectionCount         = 100              // Maximum number of concurrent connections
+	defaultTCPBufferSize  int64 = 64 << 10         // 64KB
+	defaultTCPTimeout           = 10 * time.Minute // 10 minute timeout
+	maxConnectionCountTCP       = 100              // Maximum number of concurrent connections
 )
-
-type connState struct {
-	conn     net.Conn
-	closed   bool
-	closeMux sync.Mutex
-}
-
-func newConnState(conn net.Conn) *connState {
-	return &connState{
-		conn:   conn,
-		closed: false,
-	}
-}
-
-func (cs *connState) Close() error {
-	cs.closeMux.Lock()
-	defer cs.closeMux.Unlock()
-
-	if !cs.closed {
-		cs.closed = true
-		return cs.conn.Close()
-	}
-	return nil
-}
-
-func (cs *connState) IsClosed() bool {
-	cs.closeMux.Lock()
-	defer cs.closeMux.Unlock()
-	return cs.closed
-}
 
 type InTCP struct {
 	addr              string
@@ -87,8 +57,8 @@ func ParseTCP(input map[string]interface{}, logger *slog.Logger) (InTCP, error) 
 	// Set Defaults
 	tcpObject.ListenAddr = cmp.Or(tcpObject.ListenAddr, "0.0.0.0")
 	tcpObject.Port = cmp.Or(tcpObject.Port, 6666)
-	tcpObject.BufferSize = cmp.Or(tcpObject.BufferSize, DefaultTCPBufferSize)
-	tcpObject.ConnectionTimeout = cmp.Or(tcpObject.ConnectionTimeout, defaultTimeout)
+	tcpObject.BufferSize = cmp.Or(tcpObject.BufferSize, defaultTCPBufferSize)
+	tcpObject.ConnectionTimeout = cmp.Or(tcpObject.ConnectionTimeout, defaultTCPTimeout)
 	tcpObject.addr = fmt.Sprintf("%s:%d", tcpObject.ListenAddr, tcpObject.Port)
 	tcpObject.ctx, tcpObject.cancel = context.WithCancel(context.Background())
 	tcpObject.logger = logger
@@ -104,7 +74,7 @@ func (iTcp *InTCP) incrementConnCount() bool {
 	iTcp.connCountMutex.Lock()
 	defer iTcp.connCountMutex.Unlock()
 
-	if iTcp.connCount >= maxConnectionCount {
+	if iTcp.connCount >= maxConnectionCountTCP {
 		return false
 	}
 
@@ -206,9 +176,7 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 			}
 
 			metadata := map[string]interface{}{
-				"SourceIP":   remoteAddr,
-				"Timestamp":  time.Now().Format(time.RFC3339),
-				"BufferSize": n,
+				"SourceIP": remoteAddr,
 			}
 
 			select {
@@ -245,7 +213,7 @@ func (iTcp InTCP) Start() {
 			"addr", iTcp.addr,
 			"buffer_size", iTcp.BufferSize,
 			"timeout", iTcp.ConnectionTimeout,
-			"max_connections", maxConnectionCount,
+			"max_connections", maxConnectionCountTCP,
 		)
 
 		for {

@@ -170,6 +170,14 @@ func DecodeInputs(inputsList []map[string]interface{}) {
 			cfg.Logger.Debug("Loaded this input tcp config", "Config", tcp)
 			input.AvailableInputs = append(input.AvailableInputs, tcp)
 
+		case "udp":
+			udp, err := input.ParseUDP(inputCfg, cfg.Logger)
+			if err != nil {
+				panic(err)
+			}
+			cfg.Logger.Debug("Loaded this input udp config", "Config", udp)
+			input.AvailableInputs = append(input.AvailableInputs, udp)
+
 		default:
 			cfg.Logger.Warn("Not a implemented Input", "Name", inputCfg["Name"])
 		}

@@ -1,16 +1,18 @@
 System:
-  loglevel: DEBUG
+  loglevel: INFO
   dbfile: "./state.db"
   logfile: "./app.log"
 
 Inputs:
-  - Name: "tail"
-    Tag: "app-log"
-    Glob: "./test/*"
+  - Name: "http"
+    VerifyTLS: false
+  # - Name: "tail"
+  #   Tag: "app-log"
+  #   Glob: "./test/*"
 
 Parsers:
   - Name: "json"
-    Match: "app*"
+    Match: "*"
   - Name: "regex"
     Match: "app*"
     Pattern: '^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$'
@@ -29,7 +31,3 @@ Outputs:
     EventFields:
       baz: 1
       foo: "bar"
-
-  - Name: "stdout"
-    Match: "*.log"
-    SendRaw: true

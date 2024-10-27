@@ -91,7 +91,7 @@ func (s Splunk) Write(data util.Event) error {
 	var eventData interface{}
 	if !s.SendRaw {
 		if data.ParsedData == nil {
-			s.logger.Warn("Trying to send to splunk parsedData without Parser. Sending raw data.")
+			s.logger.Warn("Trying to send to splunk Parsed Data without a defiend Parser. Sending raw data.")
 			return nil
 			// eventData = string(data.RawData)
 		}

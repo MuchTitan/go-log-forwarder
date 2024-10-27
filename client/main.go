@@ -7,7 +7,6 @@ import (
 	"log-forwarder-client/output"
 	"log-forwarder-client/router"
 	"log-forwarder-client/util"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,7 +14,6 @@ import (
 
 var (
 	cfg           *config.SystemConfig
-	logger        *slog.Logger
 	runningRouter []*router.Router
 )
 

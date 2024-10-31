@@ -89,20 +89,22 @@ func (iUdp InUDP) Start() {
 					continue
 				}
 
-				metadata := map[string]interface{}{
-					"SourceIP": remoteAddr.String(),
-				}
+				if n > 0 {
+					metadata := map[string]interface{}{
+						"SourceIP": remoteAddr.String(),
+					}
 
-				// Send the event to the channel
-				select {
-				case iUdp.sendCh <- util.Event{
-					RawData:  buffer[:n],
-					Time:     time.Now().Unix(),
-					InputTag: iUdp.GetTag(),
-					Metadata: metadata,
-				}:
-				default:
-					iUdp.logger.Warn("Event channel full, dropping message", "remote_addr", remoteAddr)
+					// Send the event to the channel
+					select {
+					case iUdp.sendCh <- util.Event{
+						RawData:  buffer[:n],
+						Time:     time.Now().Unix(),
+						InputTag: iUdp.GetTag(),
+						Metadata: metadata,
+					}:
+					default:
+						iUdp.logger.Warn("Event channel full, dropping message", "remote_addr", remoteAddr)
+					}
 				}
 			}
 		}

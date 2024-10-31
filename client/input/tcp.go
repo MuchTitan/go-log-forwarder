@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	defaultTCPBufferSize  int64 = 64 << 10         // 64KB
-	defaultTCPTimeout           = 10 * time.Minute // 10 minute timeout
-	maxConnectionCountTCP       = 100              // Maximum number of concurrent connections
+	defaultTCPBufferSize  int64 = 64 << 10 // 64KB
+	defaultTCPTimeout           = 10       // 10 minute timeout
+	maxConnectionCountTCP       = 50       // Maximum number of concurrent connections
 )
 
 type InTCP struct {
@@ -101,7 +101,7 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 	remoteAddr := conn.RemoteAddr().String()
 
 	// Set initial deadline
-	if err := conn.SetDeadline(time.Now().Add(iTcp.ConnectionTimeout)); err != nil {
+	if err := conn.SetDeadline(time.Now().Add(iTcp.ConnectionTimeout * time.Minute)); err != nil {
 		iTcp.logger.Error("Failed to set connection deadline", "error", err, "remote_addr", remoteAddr)
 		return
 	}
@@ -166,7 +166,7 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 			}
 
 			// Reset the full timeout after successful read
-			if err := conn.SetReadDeadline(time.Now().Add(iTcp.ConnectionTimeout)); err != nil {
+			if err := conn.SetReadDeadline(time.Now().Add(iTcp.ConnectionTimeout * time.Minute)); err != nil {
 				if !connState.IsClosed() {
 					iTcp.logger.Error("Failed to reset timeout deadline",
 						"error", err,
@@ -175,19 +175,21 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 				return
 			}
 
-			metadata := map[string]interface{}{
-				"SourceIP": remoteAddr,
-			}
+			if n > 0 {
+				metadata := map[string]interface{}{
+					"SourceIP": remoteAddr,
+				}
 
-			select {
-			case iTcp.sendCh <- util.Event{
-				RawData:  buffer[:n],
-				Time:     time.Now().Unix(),
-				InputTag: iTcp.GetTag(),
-				Metadata: metadata,
-			}:
-			default:
-				iTcp.logger.Warn("Event channel full, dropping message", "remote_addr", remoteAddr)
+				select {
+				case iTcp.sendCh <- util.Event{
+					RawData:  buffer[:n],
+					Time:     time.Now().Unix(),
+					InputTag: iTcp.GetTag(),
+					Metadata: metadata,
+				}:
+				default:
+					iTcp.logger.Warn("Event channel full, dropping message", "remote_addr", remoteAddr)
+				}
 			}
 		}
 	}

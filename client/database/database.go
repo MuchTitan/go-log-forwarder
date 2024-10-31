@@ -50,10 +50,11 @@ func CleanUpRetryData() error {
 func createTailFileStateTable() error {
 	query := `
 	CREATE TABLE IF NOT EXISTS tail_file_state (
-		filepath TEXT PRIMARY KEY,
+		filepath TEXT,
+        seek_offset INTEGER,
 		last_send_line INTEGER,
-		checksum BLOB,
-		inode_number INTEGER
+		inode_number INTEGER,
+        PRIMARY KEY (filepath, inode_number)
 	);`
 	_, err := DB.Exec(query)
 	if err != nil {

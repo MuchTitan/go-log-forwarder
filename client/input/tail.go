@@ -11,58 +11,59 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/mitchellh/mapstructure"
 )
 
-// TailFile holds the file and necessary channels for tailing
-type TailFile struct {
-	filePath   string
-	inputTag   string
-	logger     *slog.Logger
-	file       *os.File
-	watcher    *fsnotify.Watcher
-	ctx        context.Context
-	cancel     context.CancelFunc
-	doneCh     chan struct{}
-	sendCh     chan util.Event
-	offset     int64 // Holds the current file offset
-	startLine  int64 // The line number to start reading from
-	lineNumber int64 // Tracks the current line number
-	db         *sql.DB
+type Tail struct {
+	Glob            string    `mapstructure:"Glob"`
+	InputTag        string    `mapstructure:"Tag"`
+	files           *sync.Map // Thread-safe map for file states
+	watcher         *fsnotify.Watcher
+	logger          *slog.Logger
+	sendChan        chan util.Event // chan for all writes from the file tails
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              *sync.WaitGroup
+	db              *sql.DB
+	stateUpdateChan chan stateUpdate
 }
 
-type Tail struct {
-	Glob         string `mapstructure:"Glob"`
-	InputTag     string `mapstructure:"Tag"`
-	runningTails map[string]*TailFile
-	logger       *slog.Logger
-	sendChan     chan util.Event // chan for all writes from the file tails
-	ctx          context.Context
-	cancel       context.CancelFunc
-	db           *sql.DB
+type stateUpdate struct {
+	path  string
+	state TailFileState
 }
 
 type TailFileState struct {
-	LastSendLine int64
-	Checksum     []byte
-	InodeNumber  uint64
+	path         string
+	seekOffset   int64
+	lastSendLine int64
+	iNodeNumber  uint64
 }
 
 func ParseTail(input map[string]interface{}, logger *slog.Logger) (Tail, error) {
 	tail := Tail{
-		logger:       logger,
-		runningTails: make(map[string]*TailFile),
-		sendChan:     make(chan util.Event),
+		logger:          logger,
+		files:           &sync.Map{},
+		sendChan:        make(chan util.Event),
+		stateUpdateChan: make(chan stateUpdate, 1000),
+		wg:              &sync.WaitGroup{},
 	}
 	err := mapstructure.Decode(input, &tail)
 	if err != nil {
 		return tail, err
 	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return tail, err
+	}
+
+	tail.watcher = watcher
 
 	if tail.Glob == "" {
 		return tail, fmt.Errorf("No Glob provided in tail input")
@@ -72,346 +73,299 @@ func ParseTail(input map[string]interface{}, logger *slog.Logger) (Tail, error) 
 		return tail, fmt.Errorf("Malformed Glob provided in tail input")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	tail.ctx = ctx
-	tail.cancel = cancel
+	tail.ctx, tail.cancel = context.WithCancel(context.Background())
 	tail.db = database.GetDB()
 
 	return tail, nil
 }
 
-// NewTailFile creates a new TailFile instance starting from a specific line
-func NewTailFile(filePath, inputTag string, sendCh chan util.Event, logger *slog.Logger, parentCtx context.Context, db *sql.DB) (*TailFile, error) {
-	// Open the file
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
-	}
+func (t *Tail) persistStates() {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	defer t.wg.Done()
 
-	// Initialize fsnotify watcher
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize watcher: %w", err)
-	}
-
-	// Add the file to the watcher
-	err = watcher.Add(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to watch file: %w", err)
-	}
-
-	// Create ctx for this FileTail
-	ctx, cancel := context.WithCancel(parentCtx)
-
-	return &TailFile{
-		filePath:   filePath,
-		file:       file,
-		logger:     logger,
-		watcher:    watcher,
-		doneCh:     make(chan struct{}),
-		sendCh:     sendCh,
-		ctx:        ctx,
-		cancel:     cancel,
-		lineNumber: 0,
-		db:         db,
-		inputTag:   inputTag,
-	}, nil
-}
-
-func (tf *TailFile) SaveTailFileStateToDB() error {
-	state, err := tf.GetTailFileState()
-	if err != nil {
-		tf.logger.Warn("coundnt retrieve state", "error", err, "path", tf.filePath)
-		return err
-	}
-	_, err = tf.db.Exec(`
-        INSERT OR REPLACE INTO tail_file_state (filepath, last_send_line, checksum, inode_number)
-        VALUES (?, ?, ?, ?)`,
-		tf.filePath, state.LastSendLine, state.Checksum, state.InodeNumber)
-	return err
-}
-
-func (tf *TailFile) GetTailFileStateFromDB() (TailFileState, error) {
-	var state TailFileState
-	row := tf.db.QueryRow("SELECT last_send_line, checksum, inode_number FROM tail_file_state WHERE filepath = ?", tf.filePath)
-	err := row.Scan(&state.LastSendLine, &state.Checksum, &state.InodeNumber)
-	if err != nil {
-		return state, err
-	}
-	return state, nil
-}
-
-func GetFileInfo(path string) (uint64, []byte, error) {
-	var err error
-	var inodeNumber uint64
-	var checksum []byte
-
-	inodeNumber, _ = util.GetInodeNumber(path)
-
-	checksum, err = util.CreateChecksumForFirstThreeLines(path)
-
-	return inodeNumber, checksum, err
-}
-
-func (tf TailFile) GetTailFileState() (TailFileState, error) {
-	state := TailFileState{
-		LastSendLine: tf.lineNumber,
-	}
-
-	inodeNumber, checksum, err := GetFileInfo(tf.filePath)
-	if err != nil {
-		return state, err
-	}
-	state.InodeNumber = inodeNumber
-	state.Checksum = checksum
-
-	return state, nil
-}
-
-func CheckTailFileStates(dbState TailFileState, path string) bool {
-	inodeNumber, checksum, err := GetFileInfo(path)
-	if err != nil {
-		return false
-	}
-
-	// Check if the file still has the same starting lines and has the same inodeNumber
-	if slices.Compare(dbState.Checksum, checksum) == 0 && dbState.InodeNumber == inodeNumber {
-		return true
-	}
-
-	return false
-}
-
-// Stop stops the file tailing and closes resources
-func (tf *TailFile) stop() {
-	tf.watcher.Close()
-	tf.file.Close()
-	if tf.ctx != nil {
-		tf.cancel()
-		<-tf.doneCh
-	}
-	tf.logger.Debug("Stopping file tail", "path", tf.filePath)
-}
-
-// start monitors for changes using fsnotify
-func (tf *TailFile) start() {
-	// Load state from the database
-	state, err := tf.GetTailFileStateFromDB()
-	if err == nil {
-		if CheckTailFileStates(state, tf.filePath) {
-			tf.startLine = state.LastSendLine
-			tf.logger.Debug("Resuming tailing", "path", tf.filePath, "startLine", tf.startLine)
-		} else {
-		}
-	} else {
-		tf.logger.Debug("Could not load state, starting from the beginning", "filepath", tf.filePath)
-	}
-
-	// Start by reading all existing lines up to the target line
-	tf.readExistingLines()
-
+	var updates []stateUpdate
 	for {
 		select {
-		case <-tf.ctx.Done():
-			close(tf.doneCh)
+		case <-t.ctx.Done():
 			return
-		case event := <-tf.watcher.Events:
-			if event.Op&fsnotify.Write == fsnotify.Write {
-				tf.readNewLines()
-			}
-		case err := <-tf.watcher.Errors:
-			if err == nil {
+		case update := <-t.stateUpdateChan:
+			updates = append(updates, update)
+		case <-ticker.C:
+			if len(updates) == 0 {
 				continue
 			}
-			tf.logger.Error("Watcher error", "error", err, "path", tf.filePath)
+
+			// Begin transaction
+			tx, err := t.db.Begin()
+			if err != nil {
+				t.logger.Error("Failed to begin transaction", "error", err)
+				continue
+			}
+
+			stmt, err := tx.Prepare(`
+				INSERT OR REPLACE INTO tail_file_state (filepath, seek_offset, last_send_line, inode_number)
+				VALUES (?, ?, ?, ?)
+			`)
+			if err != nil {
+				t.logger.Error("Failed to prepare statement", "error", err)
+				tx.Rollback()
+				continue
+			}
+
+			for _, update := range updates {
+				_, err := stmt.Exec(
+					update.path,
+					update.state.seekOffset,
+					update.state.lastSendLine,
+					update.state.iNodeNumber,
+				)
+				if err != nil {
+					t.logger.Error("Failed to execute statement", "error", err)
+					continue
+				}
+			}
+
+			stmt.Close()
+			err = tx.Commit()
+			if err != nil {
+				t.logger.Error("Failed to commit transaction", "error", err)
+				tx.Rollback()
+				continue
+			}
+
+			updates = updates[:0] // Clear the slice
 		}
 	}
 }
 
-func (tf *TailFile) readExistingLines() {
-	_, err := tf.file.Seek(0, io.SeekStart)
+func (t *Tail) GetTailFileStateFromDB(path string, inodeNum uint64) (TailFileState, bool) {
+	var state TailFileState
+	err := t.db.QueryRow(`
+		SELECT filepath, seek_offset, last_send_line, inode_number
+		FROM tail_file_state
+        WHERE filepath = ? AND inode_number = ?
+	`, path, inodeNum).Scan(&state.path, &state.seekOffset, &state.lastSendLine, &state.iNodeNumber)
+
+	if err == sql.ErrNoRows {
+		return TailFileState{}, false
+	}
 	if err != nil {
-		tf.logger.Error("Error seeking in file", "error", err, "path", tf.filePath)
-		return
+		t.logger.Error("Failed to query file state", "error", err)
+		return TailFileState{}, false
 	}
 
-	reader := bufio.NewReader(tf.file)
+	return state, true
+}
+
+func (t *Tail) updateFileState(path string, state TailFileState) {
+	t.files.Store(path, state)
+	// Send state update to be processed in batch
+	select {
+	case t.stateUpdateChan <- stateUpdate{path: path, state: state}:
+	default:
+		t.logger.Warn("State update channel full, skipping persistence")
+	}
+}
+
+func isPathDirectory(path string) (bool, error) {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+
+	return stat.IsDir(), nil
+}
+
+func (t *Tail) readFile(path string, state TailFileState) (TailFileState, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return state, fmt.Errorf("error while opening file: %v", err)
+	}
+	defer file.Close()
+
+	_, err = file.Seek(state.seekOffset, io.SeekStart)
+	if err != nil {
+		return state, fmt.Errorf("error while seeking file: %v", err)
+	}
+
+	reader := bufio.NewReader(file)
 
 	for {
-		lineRaw, err := reader.ReadString('\n')
+		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
-				tf.logger.Error("Error reading from file", "error", err)
+				t.logger.Error("Error reading from file", "error", err)
 			}
-			currentOffset, _ := tf.file.Seek(0, io.SeekCurrent)
-			tf.offset = currentOffset
-			return
+
+			state.seekOffset, _ = file.Seek(0, io.SeekCurrent)
+			return state, nil
 		}
-		tf.lineNumber++
-		line := strings.TrimSpace(lineRaw)
 
-		result := tf.BuildResult(line)
+		state.lastSendLine++
 
-		if tf.lineNumber > tf.startLine {
-			select {
-			case <-tf.ctx.Done():
+		line = strings.TrimSpace(line)
+
+		t.sendChan <- util.Event{
+			RawData:  []byte(line),
+			InputTag: t.GetTag(),
+			Time:     time.Now().Unix(),
+		}
+	}
+}
+
+func CheckIfPathIsStillTheSameFile(path string, currState TailFileState) bool {
+	newFileINodeNumber, _ := util.GetInodeNumber(path)
+
+	return newFileINodeNumber == currState.iNodeNumber
+}
+
+func newFileTailState(path string) TailFileState {
+	inodeNum, _ := util.GetInodeNumber(path)
+	return TailFileState{
+		path:         path,
+		lastSendLine: 0,
+		seekOffset:   0,
+		iNodeNumber:  inodeNum,
+	}
+}
+
+func (t *Tail) handleNewFileTailState(path string) {
+	// First check if we have a saved state
+	currINodeNum, err := util.GetInodeNumber(path)
+	if err != nil {
+		t.logger.Error("Coundnt get InodeNum", "error", err, "path", path)
+	}
+	if savedState, exists := t.GetTailFileStateFromDB(path, currINodeNum); exists {
+		// Verify if the file is still the same
+		if CheckIfPathIsStillTheSameFile(path, savedState) {
+			newState, err := t.readFile(path, savedState)
+			if err != nil {
+				t.logger.Error("Couldn't read from file with saved state", "error", err)
 				return
-			case tf.sendCh <- result:
-				// Line sent successfully
 			}
+			t.updateFileState(path, newState)
+			return
+		}
+	}
+
+	// If no saved state or file changed, start fresh
+	newState := newFileTailState(path)
+	newState, err = t.readFile(path, newState)
+	if err != nil {
+		t.logger.Error("Couldn't read from file", "error", err)
+	}
+	t.updateFileState(path, newState)
+}
+
+func (t *Tail) handleNotifyEvent(event fsnotify.Event) {
+	defer t.wg.Done()
+	if event.Has(fsnotify.Create) {
+		isDir, err := isPathDirectory(event.Name)
+		if err != nil {
+			t.logger.Warn("Couldn't check if filepath is directory in tail", "error", err, "path", event.Name)
+			return
+		}
+
+		// Check if the directory matches the glob pattern
+		matchesGlob, err := filepath.Match(t.Glob, event.Name)
+		if err != nil {
+			t.logger.Warn("Error matching glob pattern", "error", err, "pattern", t.Glob, "path", event.Name)
+			return
+		}
+
+		if !isDir && matchesGlob {
+			err = t.watcher.Add(event.Name)
+			if err != nil {
+				t.logger.Error("Failed to add file to watcher", "error", err, "path", event.Name)
+			}
+		}
+	} else if event.Has(fsnotify.Write) {
+		if stateVal, found := t.files.Load(event.Name); found {
+			state := stateVal.(TailFileState)
+			isSameFile := CheckIfPathIsStillTheSameFile(event.Name, state)
+			if !isSameFile {
+				t.handleNewFileTailState(event.Name)
+				return
+			}
+
+			newState, err := t.readFile(event.Name, state)
+			if err != nil {
+				t.logger.Error("Couldn't read from file", "error", err, "path", event.Name)
+				return
+			}
+			t.files.Store(event.Name, newState)
+			t.stateUpdateChan <- stateUpdate{path: event.Name, state: newState}
+		} else {
+			t.handleNewFileTailState(event.Name)
 		}
 	}
 }
 
-func (tf *TailFile) readNewLines() {
-	_, err := tf.file.Seek(tf.offset, io.SeekStart)
+func (t *Tail) readInitialFiles() error {
+	defer t.wg.Done()
+	matches, err := filepath.Glob(t.Glob)
 	if err != nil {
-		tf.logger.Error("Error seeking in file", "error", err, "path", tf.filePath)
-		return
+		return err
 	}
 
-	reader := bufio.NewReader(tf.file)
-
-	for {
-		lineRaw, err := reader.ReadString('\n')
-		if err != nil {
-			if err != io.EOF {
-				tf.logger.Error("Error reading from file", "error", err)
-			}
-			currentOffset, _ := tf.file.Seek(0, io.SeekCurrent)
-			tf.offset = currentOffset
-			return
-		}
-		tf.lineNumber++
-		line := strings.TrimSpace(lineRaw)
-
-		result := tf.BuildResult(line)
-
+	for _, match := range matches {
 		select {
-		case <-tf.ctx.Done():
-			return
-		case tf.sendCh <- result:
-			// Line sent successfully
+		case <-t.ctx.Done():
+			return nil
+		default:
+			t.handleNewFileTailState(match)
 		}
 	}
+	return nil
 }
 
-func (t *Tail) getDirContent(glob string) ([]string, error) {
-	filepathsFromGlob, err := filepath.Glob(glob)
-	if err != nil {
-		return []string{}, err
-	}
-
-	filepaths := []string{}
-	for _, filepath := range filepathsFromGlob {
-		fileInfo, err := os.Stat(filepath)
+func (t Tail) Start() {
+	t.logger.Info("Starting file tail", "glob", t.Glob)
+	go func() {
+		rootPath := filepath.Dir(t.Glob)
+		err := t.watcher.Add(rootPath)
 		if err != nil {
-			t.logger.Error("Coundnt retrieve fileinfo while getting directory content", "error", err, "path", filepath)
-			continue
-		}
-		// If filepath is dir dont add to return array
-		if fileInfo.IsDir() {
-			continue
-		}
-		// If File is not readable dont add to return array
-		if _, err := os.Open(filepath); err != nil {
-			continue
+			t.logger.Error("error while adding root path to watcher", "error", err, "rootPath", rootPath)
+			return
 		}
 
-		filepaths = append(filepaths, filepath)
-	}
-
-	return filepaths, nil
+		t.wg.Add(2)
+		go t.persistStates()
+		t.readInitialFiles()
+		for {
+			select {
+			case <-t.ctx.Done():
+				return
+			case event := <-t.watcher.Events:
+				t.wg.Add(1)
+				go t.handleNotifyEvent(event)
+			case err := <-t.watcher.Errors:
+				if err == nil {
+					continue
+				}
+				if err == fsnotify.ErrEventOverflow {
+					t.logger.Warn("watcher has a event overflow")
+					continue
+				}
+				t.logger.Error("watcher error", "error", err)
+			}
+		}
+	}()
 }
 
 func (t Tail) Read() <-chan util.Event {
 	return t.sendChan
 }
 
-func (t *Tail) Watch() {
-	err := t.checkDirectory()
-	if err != nil {
-		t.logger.Error("Failed to check directory", "error", err, "path", t.Glob)
-	}
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	t.logger.Info("Initial tails", "tails", getKeysFromMap(t.runningTails))
-	for {
-		select {
-		case <-t.ctx.Done():
-			return
-		case <-ticker.C:
-			if err := t.checkDirectory(); err != nil {
-				t.logger.Error("Failed to check directory", "error", err, "path", t.Glob)
-			}
-		}
-	}
-}
-
-func getKeysFromMap[T any | *TailFile](input map[string]T) []string {
-	out := []string{}
-	for key := range input {
-		out = append(out, key)
-	}
-	return out
-}
-
-func (t *Tail) checkDirectory() error {
-	files, err := t.getDirContent(t.Glob)
-	if err != nil {
-		return err
-	}
-
-	for _, file := range files {
-		if _, exists := t.runningTails[file]; !exists {
-			if err := t.startTail(file); err != nil {
-				t.logger.Error("Failed to start tail", "error", err, "path", t.Glob)
-			}
-		}
-	}
-
-	t.logger.Debug("running file tails", "tails", getKeysFromMap(t.runningTails))
-
-	for file, tail := range t.runningTails {
-		if !slices.Contains(files, file) {
-			tail.stop()
-			delete(t.runningTails, file)
-		}
-	}
-
-	return nil
-}
-
-func (t *Tail) startTail(path string) error {
-	tail, err := NewTailFile(path, t.InputTag, t.sendChan, t.logger, t.ctx, t.db)
-	if err != nil {
-		return err
-	}
-
-	go tail.start()
-
-	t.runningTails[path] = tail
-	return nil
-}
-
-func (t Tail) Start() {
-	go util.ExecutePeriodically(t.ctx, 30, t.SaveState)
-	go t.Watch()
-}
-
 func (t Tail) Stop() {
 	if t.ctx != nil {
 		t.cancel()
 	}
-
-	for _, tail := range t.runningTails {
-		tail.stop()
-	}
-
-	t.SaveState()
-
+	t.watcher.Close()
+	t.wg.Wait()
 	close(t.sendChan)
+	close(t.stateUpdateChan)
 }
 
 func (t Tail) GetTag() string {
@@ -419,27 +373,4 @@ func (t Tail) GetTag() string {
 		return "*"
 	}
 	return t.InputTag
-}
-
-func (t Tail) SaveState() {
-	for _, tail := range t.runningTails {
-		err := tail.SaveTailFileStateToDB()
-		if err != nil {
-			t.logger.Error("Failed to save state", "error", err, "path", tail.filePath)
-		}
-	}
-}
-
-func (tf *TailFile) BuildResult(data string) util.Event {
-	var result util.Event
-	result.RawData = []byte(data)
-	result.Time = time.Now().Unix()
-
-	metadata := map[string]interface{}{
-		"filename": tf.filePath,
-	}
-	result.Metadata = metadata
-	result.InputTag = tf.inputTag
-
-	return result
 }

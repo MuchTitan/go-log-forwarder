@@ -4,16 +4,22 @@ System:
   logfile: "./app.log"
 
 Inputs:
-  # - Name: "tail"
-  #   Tag: "app-log"
-  #   Glob: "./test/*"
+  - Name: "tail"
+    Tag: "app-log"
+    Glob: "./test/*"
+
   - Name: "udp"
+    Tag: "app-log"
+    Port: 1234
+
+  - Name: "tcp"
     Tag: "app-log"
     Port: 1234
 
 Parsers:
   - Name: "json"
     Match: "*"
+
   - Name: "regex"
     Match: "app*"
     Pattern: '^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$'
@@ -29,6 +35,3 @@ Outputs:
     SendRaw: false
     EventSourceType: "application-log"
     EventIndex: "test"
-    EventFields:
-      baz: 1
-      foo: "bar"

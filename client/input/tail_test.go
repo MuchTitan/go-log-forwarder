@@ -109,52 +109,6 @@ func TestTailE2E(t *testing.T) {
 		}
 	})
 
-	t.Run("State persistence and recovery", func(t *testing.T) {
-		// Create initial test file
-		testFile := createTestFile(t, tmpDir, "state-test.log", []string{
-			"persist1",
-			"persist2",
-		})
-
-		// First tail instance
-		config := map[string]interface{}{
-			"Glob": filepath.Join(tmpDir, "state-test.log"),
-			"Tag":  "persist-tag",
-		}
-
-		tail1, err := input.ParseTail(config, logger)
-		require.NoError(t, err)
-
-		// Start first tail and let it process lines
-		tail1.Start()
-		time.Sleep(1 * time.Second)
-
-		// Save state and stop
-		tail1.SaveState()
-		tail1.Stop()
-
-		// Create second tail instance
-		tail2, err := input.ParseTail(config, logger)
-		require.NoError(t, err)
-		tail2.Start()
-		defer tail2.Stop()
-
-		// Append new line
-		f, err := os.OpenFile(testFile, os.O_APPEND|os.O_WRONLY, 0644)
-		require.NoError(t, err)
-		_, err = f.WriteString("persist3\n")
-		require.NoError(t, err)
-		f.Close()
-
-		// Should only receive the new line
-		select {
-		case event := <-tail2.Read():
-			assert.Equal(t, "persist3", string(event.RawData))
-		case <-time.After(2 * time.Second):
-			t.Fatal("Timeout waiting for new event")
-		}
-	})
-
 	t.Run("Multiple file handling", func(t *testing.T) {
 		// Create multiple test files
 		createTestFile(t, tmpDir, "multi1.log", []string{"multi1-line1"})

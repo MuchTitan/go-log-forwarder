@@ -93,7 +93,6 @@ func (s Splunk) Write(data util.Event) error {
 		if data.ParsedData == nil {
 			s.logger.Warn("Trying to send to splunk Parsed Data without a defiend Parser. Sending raw data.")
 			return nil
-			// eventData = string(data.RawData)
 		}
 		eventData = util.MergeMaps(data.ParsedData, s.EventFields)
 	} else {
@@ -117,7 +116,7 @@ func (s Splunk) Write(data util.Event) error {
 
 	err = s.SendDataToSplunk(postDataRaw)
 	if err != nil {
-		s.logger.Warn("Coundnt send to splunk", "error", err)
+		s.logger.Debug("Coundnt send to splunk", "error", err)
 		return err
 	}
 	return nil

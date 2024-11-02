@@ -1,20 +1,12 @@
 System:
   loglevel: INFO
   dbfile: "./state.db"
-  logfile: "./app.log"
+  logfile: "./logs/forwarder.log"
 
 Inputs:
   - Name: "tail"
     Tag: "app-log"
-    Glob: "./test/*"
-
-  - Name: "udp"
-    Tag: "app-log"
-    Port: 1234
-
-  - Name: "tcp"
-    Tag: "app-log"
-    Port: 1234
+    Glob: "./logs/test*.log"
 
 Parsers:
   - Name: "json"
@@ -28,7 +20,7 @@ Parsers:
 Outputs:
   - Name: "splunk"
     Match: "*"
-    Host: "localhost"
+    Host: "host.docker.internal"
     Port: 8088
     Token: "${Splunk_Token}"
     VerifyTLS: false

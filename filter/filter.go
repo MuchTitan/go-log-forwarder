@@ -6,5 +6,5 @@ var AvailableFilters []Filter
 
 type Filter interface {
 	GetMatch() string
-	Apply(*util.Event) (bool, error)
+	Apply(*util.Event) bool
 }

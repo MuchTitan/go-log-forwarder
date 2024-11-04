@@ -302,22 +302,17 @@ func (t *Tail) handleNotifyEvent(event fsnotify.Event) {
 	}
 }
 
-func (t *Tail) readInitialFiles() error {
+func (t *Tail) readInitialFiles() {
 	defer t.wg.Done()
-	matches, err := filepath.Glob(t.Glob)
-	if err != nil {
-		return err
-	}
-
+	matches, _ := filepath.Glob(t.Glob)
 	for _, match := range matches {
 		select {
 		case <-t.ctx.Done():
-			return nil
+			return
 		default:
 			t.handleNewFileTailState(match)
 		}
 	}
-	return nil
 }
 
 func (t Tail) Start() {

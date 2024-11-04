@@ -3,8 +3,10 @@ package main
 import (
 	"log-forwarder-client/config"
 	"log-forwarder-client/database"
+	"log-forwarder-client/filter"
 	"log-forwarder-client/input"
 	"log-forwarder-client/output"
+	"log-forwarder-client/parser"
 	"log-forwarder-client/router"
 	"log-forwarder-client/util"
 	"os"
@@ -21,6 +23,16 @@ func StartRouters() {
 	for _, in := range input.AvailableInputs {
 		rt := router.NewRouter(cfg.Logger)
 		rt.SetInput(in)
+		for _, parser := range parser.AvailableParser {
+			if util.TagMatch(in.GetTag(), parser.GetMatch()) {
+				rt.AddParser(parser)
+			}
+		}
+		for _, filter := range filter.AvailableFilters {
+			if util.TagMatch(in.GetTag(), filter.GetMatch()) {
+				rt.AddFilter(filter)
+			}
+		}
 		for _, out := range output.AvailableOutputs {
 			if util.TagMatch(in.GetTag(), out.GetMatch()) {
 				rt.AddOutput(out)

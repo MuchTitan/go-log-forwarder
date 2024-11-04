@@ -37,21 +37,21 @@ func ParseGrep(input map[string]interface{}, logger *slog.Logger) (Grep, error) 
 	return grep, nil
 }
 
-func (g Grep) Apply(data *util.Event) (bool, error) {
+func (g Grep) Apply(data *util.Event) bool {
 	matches := 0
 
 	// Check each pattern
 	for _, regexString := range g.Regex {
 		pattern, err := regexp.Compile(regexString)
 		if err != nil {
-			return false, err
+			return false
 		}
 		byteParsedData, _ := json.Marshal(data.ParsedData)
 		if pattern.MatchString(string(byteParsedData)) {
 			matches++
 			// If LogicalOp is "or" and one pattern matches, return true
 			if g.Op == "or" {
-				return true, nil
+				return true
 			}
 		}
 	}
@@ -59,19 +59,19 @@ func (g Grep) Apply(data *util.Event) (bool, error) {
 	for _, regexString := range g.Exclude {
 		pattern, err := regexp.Compile(regexString)
 		if err != nil {
-			return false, err
+			return false
 		}
 		byteParsedData, _ := json.Marshal(data.ParsedData)
 		if pattern.MatchString(string(byteParsedData)) {
 			matches++
 			// If LogicalOp is "or" and one pattern matches, return true
 			if g.Op == "or" {
-				return true, nil
+				return true
 			}
 		}
 	}
 
-	return g.Op == "and" && matches == (len(g.Regex)+len(g.Exclude)), nil
+	return g.Op == "and" && matches == (len(g.Regex)+len(g.Exclude))
 }
 
 func (g Grep) GetMatch() string {

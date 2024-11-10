@@ -26,6 +26,7 @@ import (
 type Tail struct {
 	Glob            string    `mapstructure:"Glob"`
 	InputTag        string    `mapstructure:"Tag"`
+	FilenameKey     string    `mapstructure:"FilenameKey"`
 	files           *sync.Map // Thread-safe map for file states
 	timers          *sync.Map
 	watcher         *fsnotify.Watcher
@@ -249,6 +250,7 @@ func (t *Tail) readFile(path string, state TailFileState) (TailFileState, error)
 		t.sendChan <- util.Event{
 			RawData:  []byte(line),
 			InputTag: t.GetTag(),
+			Metadata: t.buildMetadata(state),
 			Time:     time.Now().Unix(),
 		}
 	}
@@ -399,6 +401,16 @@ func (t *Tail) readInitialFiles() {
 			t.handleNewFileTail(match)
 		}
 	}
+}
+
+func (t *Tail) buildMetadata(state TailFileState) map[string]interface{} {
+	output := make(map[string]interface{})
+
+	if t.FilenameKey != "" {
+		output[t.FilenameKey] = state.path
+	}
+
+	return output
 }
 
 // Start begins monitoring files that match the configured glob pattern.

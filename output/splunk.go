@@ -92,7 +92,6 @@ func (s Splunk) Write(data util.Event) error {
 	if !s.SendRaw {
 		if data.ParsedData == nil {
 			s.logger.Warn("Trying to send to splunk Parsed Data without a defiend Parser. Sending raw data.")
-			s.SendRaw = true
 			return nil
 		}
 		eventData = util.MergeMaps(data.ParsedData, s.EventFields)

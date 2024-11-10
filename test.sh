@@ -5,7 +5,7 @@ TARGET_DIR="./logs"
 mkdir -p "$TARGET_DIR"
 
 # Number of files to generate
-FILE_COUNT=500
+FILE_COUNT=1000
 
 # Function to generate a single JSON line
 generate_json_line() {
@@ -20,7 +20,7 @@ generate_json_line() {
 generate_file() {
     local file_num=$1
     local file_name="${TARGET_DIR}/file_${file_num}.log"
-    local line_count=$(shuf -i 10-100 -n 1)
+    local line_count=$(shuf -i 25-75 -n 1)
 
     # Delete the file if it exists, then create/truncate it
     rm -f "$file_name"

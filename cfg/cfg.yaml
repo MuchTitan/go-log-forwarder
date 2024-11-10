@@ -1,21 +1,22 @@
 System:
   loglevel: DEBUG
   dbfile: "./state.db"
-  logfile: "./logs/forwarder.log"
+  logfile: "./forwarder.log"
 
 Inputs:
   - Name: "tail"
     Tag: "app-log"
     Glob: "./logs/file*.log"
+    FilenameKey: "filename"
 
 Parsers:
   - Name: "json"
     Match: "*"
 
-  - Name: "regex"
-    Match: "app*"
-    Pattern: '^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$'
-    AllowEmtpy: false
+  # - Name: "regex"
+  #   Match: "app*"
+  #   Pattern: '^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$'
+  #   AllowEmtpy: false
 
 Outputs:
   - Name: "splunk"

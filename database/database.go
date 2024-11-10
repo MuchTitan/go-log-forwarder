@@ -12,24 +12,34 @@ import (
 
 var DB *sql.DB
 
+// OpenDB initializes the SQLite3 database with WAL mode and creates necessary tables.
 func OpenDB(dbFile string) error {
 	var err error
 	DB, err = sql.Open("sqlite3", dbFile)
 	if err != nil {
 		return err
 	}
-	err = createRouterTable()
-	if err != nil {
+
+	// Enable Write-Ahead Logging mode
+	if _, err = DB.Exec("PRAGMA journal_mode=WAL;"); err != nil {
 		return err
 	}
-	err = createRetryDataTable()
-	if err != nil {
+
+	// Create tables
+	if err := createRouterTable(); err != nil {
 		return err
 	}
-	err = createTailFileStateTable()
-	return err
+	if err := createRetryDataTable(); err != nil {
+		return err
+	}
+	if err := createTailFileStateTable(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
+// GetDB returns the active database connection. Logs a fatal error if the database is not opened yet.
 func GetDB() *sql.DB {
 	if DB == nil {
 		log.Fatalln("Trying to get a DB that is not opened yet")
@@ -37,33 +47,35 @@ func GetDB() *sql.DB {
 	return DB
 }
 
+// CloseDB closes the database connection.
 func CloseDB() {
-	DB.Close()
+	if err := DB.Close(); err != nil {
+		log.Printf("Failed to close database: %v", err)
+	}
 }
 
+// CleanUpRetryData removes retry data with a true status from the retry_data table.
 func CleanUpRetryData() error {
-	_, err := DB.Exec(`DELETE FROM retry_data where status = true`)
+	_, err := DB.Exec(`DELETE FROM retry_data WHERE status = true`)
 	return err
 }
 
-// Function to create tail_file_state table
+// createTailFileStateTable creates the tail_file_state table if it doesn't already exist.
 func createTailFileStateTable() error {
 	query := `
 	CREATE TABLE IF NOT EXISTS tail_file_state (
 		filepath TEXT,
-        seek_offset INTEGER,
+		seek_offset INTEGER,
 		last_send_line INTEGER,
+        checksum BLOB,
 		inode_number INTEGER,
-        PRIMARY KEY (filepath, inode_number)
+		PRIMARY KEY (filepath, inode_number,checksum)
 	);`
 	_, err := DB.Exec(query)
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
-// Function to create router table
+// createRouterTable creates the router table if it doesn't already exist.
 func createRouterTable() error {
 	query := `
 	CREATE TABLE IF NOT EXISTS router (
@@ -72,13 +84,10 @@ func createRouterTable() error {
 		input TEXT NOT NULL
 	);`
 	_, err := DB.Exec(query)
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
-// Function to create retry_data table
+// createRetryDataTable creates the retry_data table if it doesn't already exist.
 func createRetryDataTable() error {
 	query := `
 	CREATE TABLE IF NOT EXISTS retry_data (
@@ -91,12 +100,10 @@ func createRetryDataTable() error {
 		UNIQUE(data, router_id)
 	);`
 	_, err := DB.Exec(query)
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
+// SetupTestDB sets up a temporary SQLite3 database for testing, with cleanup on test completion.
 func SetupTestDB(t *testing.T) *sql.DB {
 	// Create a temporary directory for the test database
 	tmpDir, err := os.MkdirTemp("", "test-db-*")
@@ -108,8 +115,7 @@ func SetupTestDB(t *testing.T) *sql.DB {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	// Open the database
-	err = OpenDB(dbPath)
-	if err != nil {
+	if err := OpenDB(dbPath); err != nil {
 		os.RemoveAll(tmpDir)
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -123,8 +129,7 @@ func SetupTestDB(t *testing.T) *sql.DB {
 	// Clear any existing data
 	tables := []string{"tail_file_state", "router", "retry_data"}
 	for _, table := range tables {
-		_, err := DB.Exec("DELETE FROM " + table)
-		if err != nil {
+		if _, err := DB.Exec("DELETE FROM " + table); err != nil {
 			t.Fatalf("Failed to clean table %s: %v", table, err)
 		}
 	}

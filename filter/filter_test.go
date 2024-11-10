@@ -138,8 +138,7 @@ func TestUtil(t *testing.T) {
 
 		for _, test := range testData {
 			t.Run(test.name, func(t *testing.T) {
-				result, err := test.g.Apply(test.data)
-				assert.NoError(t, err)
+				result := test.g.Apply(test.data)
 				assert.Equal(t, test.expect, result, fmt.Sprintf("Failed test case: %s\nLogicOp: %s, Regex: %v, Exclude: %v",
 					test.name, test.g.Op, test.g.Regex, test.g.Exclude))
 			})

@@ -39,7 +39,7 @@ func ExtractTimeKey(timeKey, timeFormat string, data *util.Event) error {
 		var timeStr string
 		var ok bool
 		if timeStr, ok = time.(string); !ok {
-			return fmt.Errorf("Cound parse timeKey into string")
+			return fmt.Errorf("cant parse timeKey into string")
 		}
 		parsedTime, err := ParseTime(timeStr, timeFormat)
 		if err != nil {

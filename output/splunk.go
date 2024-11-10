@@ -92,6 +92,7 @@ func (s Splunk) Write(data util.Event) error {
 	if !s.SendRaw {
 		if data.ParsedData == nil {
 			s.logger.Warn("Trying to send to splunk Parsed Data without a defiend Parser. Sending raw data.")
+			s.SendRaw = true
 			return nil
 		}
 		eventData = util.MergeMaps(data.ParsedData, s.EventFields)
@@ -123,7 +124,12 @@ func (s Splunk) Write(data util.Event) error {
 }
 
 func (s *Splunk) SendDataToSplunk(data []byte) error {
-	serverURL := fmt.Sprintf("https://%s:%d/services/collector", s.Host, s.Port)
+	var serverURL string
+	if s.SendRaw {
+		serverURL = fmt.Sprintf("https://%s:%d/services/collector/raw", s.Host, s.Port)
+	} else {
+		serverURL = fmt.Sprintf("https://%s:%d/services/collector", s.Host, s.Port)
+	}
 	req, err := http.NewRequest("POST", serverURL, bytes.NewBuffer(data))
 	if err != nil {
 		return fmt.Errorf("HTTP post failed: %w", err)

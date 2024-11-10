@@ -69,10 +69,18 @@ func (r *Router) ApplyParsers(data *util.Event) {
 	var err error
 	for _, parser := range r.parsers {
 		err = parser.Apply(data)
+		if err == nil {
+			return
+		}
 	}
 	if err != nil {
 		if r.logger.Enabled(context.Background(), slog.LevelDebug) {
-			r.logger.Warn("Coundnt parse data with any defiend Parser", "InputTag", data.InputTag, "data", data, "error", err)
+			r.logger.Warn("Coundnt parse data with any defiend Parser",
+				"InputTag", data.InputTag,
+				"error", err,
+				"rawData", string(data.RawData),
+				"filepath", data.Metadata["filepath"],
+			)
 		} else {
 			r.logger.Warn("Coundnt parse data with any defiend Parser", "InputTag", data.InputTag)
 		}

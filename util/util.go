@@ -107,7 +107,7 @@ func GetInodeNumber(filepath string) (uint64, error) {
 	return stat.Ino, nil
 }
 
-func CreateChecksumForFirstThreeLines(filepath string) ([]byte, error) {
+func CreateChecksumForFirstLine(filepath string) ([]byte, error) {
 	file, err := os.Open(filepath)
 	if err != nil {
 		return nil, fmt.Errorf("error opening file: %w", err)
@@ -117,18 +117,13 @@ func CreateChecksumForFirstThreeLines(filepath string) ([]byte, error) {
 	reader := bufio.NewReader(file)
 	hash := sha256.New()
 
-	for i := 0; i < 3; i++ {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				// If we hit EOF before reading 3 lines, it's not an error
-				// We'll just hash what we've read so far
-				break
-			}
+	line, err := reader.ReadBytes('\n')
+	if err != nil {
+		if err != io.EOF {
 			return nil, fmt.Errorf("error reading line: %w", err)
 		}
-		hash.Write(line)
 	}
+	hash.Write(line)
 
 	return hash.Sum(nil), nil
 }

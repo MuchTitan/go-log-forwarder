@@ -20,11 +20,6 @@ func OpenDB(dbFile string) error {
 		return err
 	}
 
-	// Enable Write-Ahead Logging mode
-	if _, err = DB.Exec("PRAGMA journal_mode=WAL;"); err != nil {
-		return err
-	}
-
 	// Create tables
 	if err := createRouterTable(); err != nil {
 		return err

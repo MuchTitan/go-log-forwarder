@@ -1,5 +1,5 @@
 System:
-  loglevel: DEBUG
+  loglevel: INFO
   dbfile: "./state.db"
   logfile: "./forwarder.log"
 
@@ -13,10 +13,10 @@ Parsers:
   - Name: "json"
     Match: "*"
 
-  # - Name: "regex"
-  #   Match: "app*"
-  #   Pattern: '^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$'
-  #   AllowEmtpy: false
+  - Name: "regex"
+    Match: "app*"
+    Pattern: '^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$'
+    AllowEmtpy: false
 
 Outputs:
   - Name: "splunk"
@@ -24,7 +24,7 @@ Outputs:
     Host: "localhost"
     Port: 8088
     Token: "${Splunk_Token}"
-    VerifyTLS: false
+    VerifyTLS: true
     SendRaw: false
     EventSourceType: "application-log"
     EventIndex: "test"

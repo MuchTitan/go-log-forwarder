@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"cmp"
 	"crypto/tls"
-	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log-forwarder-client/database"
 	"log-forwarder-client/util"
 	"log/slog"
 	"net/http"
@@ -17,7 +15,6 @@ import (
 )
 
 type Splunk struct {
-	db              *sql.DB
 	logger          *slog.Logger
 	httpClient      *http.Client
 	EventFields     map[string]interface{} `mapstructure:"EventFields"`
@@ -33,12 +30,12 @@ type Splunk struct {
 }
 
 type SplunkPostData struct {
-	Time       int64       `json:"time"`
-	Event      interface{} `json:"event"` // here lives the data
+	Event      interface{} `json:"event"`
 	Index      string      `json:"index"`
 	Source     string      `json:"source"`
 	Sourcetype string      `json:"sourcetype"`
 	Host       string      `json:"host"`
+	Time       int64       `json:"time"`
 }
 
 func ParseSplunk(input interface{}, logger *slog.Logger) (Splunk, error) {
@@ -60,8 +57,6 @@ func ParseSplunk(input interface{}, logger *slog.Logger) (Splunk, error) {
 	// Setup Defaults
 	splunk.EventHost = cmp.Or(splunk.EventHost, util.GetHostname())
 	splunk.EventSourceType = cmp.Or(splunk.EventSourceType, "JSON")
-
-	splunk.db = database.GetDB()
 
 	// Setup TLS
 	tr := &http.Transport{
@@ -93,7 +88,6 @@ func (s Splunk) Write(data util.Event) error {
 		if data.ParsedData == nil {
 			s.logger.Warn("Trying to send to splunk Parsed Data without a defiend Parser. Sending raw data.")
 			return nil
-			// eventData = string(data.RawData)
 		}
 		eventData = util.MergeMaps(data.ParsedData, s.EventFields)
 	} else {
@@ -117,14 +111,19 @@ func (s Splunk) Write(data util.Event) error {
 
 	err = s.SendDataToSplunk(postDataRaw)
 	if err != nil {
-		s.logger.Warn("Coundnt send to splunk", "error", err)
+		s.logger.Debug("Coundnt send to splunk", "error", err)
 		return err
 	}
 	return nil
 }
 
 func (s *Splunk) SendDataToSplunk(data []byte) error {
-	serverURL := fmt.Sprintf("https://%s:%d/services/collector", s.Host, s.Port)
+	var serverURL string
+	if s.SendRaw {
+		serverURL = fmt.Sprintf("https://%s:%d/services/collector/raw", s.Host, s.Port)
+	} else {
+		serverURL = fmt.Sprintf("https://%s:%d/services/collector", s.Host, s.Port)
+	}
 	req, err := http.NewRequest("POST", serverURL, bytes.NewBuffer(data))
 	if err != nil {
 		return fmt.Errorf("HTTP post failed: %w", err)

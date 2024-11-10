@@ -22,6 +22,8 @@ type Router struct {
 	logger     *slog.Logger
 	retryQueue *RetryQueue
 	db         *sql.DB
+	parsers    []parser.Parser
+	filters    []filter.Filter
 	outputs    []output.Output
 	dbID       int64
 }
@@ -37,6 +39,14 @@ func NewRouter(logger *slog.Logger) *Router {
 		retryQueue: NewRetryQueue(logger),
 		db:         database.GetDB(),
 	}
+}
+
+func (r *Router) AddParser(parser parser.Parser) {
+	r.parsers = append(r.parsers, parser)
+}
+
+func (r *Router) AddFilter(filter filter.Filter) {
+	r.filters = append(r.filters, filter)
 }
 
 func (r *Router) AddOutput(output output.Output) {
@@ -55,41 +65,45 @@ func (r *Router) GetInputTag() string {
 	return r.input.GetTag()
 }
 
-func (r *Router) ApplyParser(data *util.Event) error {
+func (r *Router) ApplyParsers(data *util.Event) {
 	var err error
-	for _, parser := range parser.AvailableParser {
-		if util.TagMatch(data.InputTag, parser.GetMatch()) {
-			err = parser.Apply(data)
-			if err == nil {
-				break
-			}
+	for _, parser := range r.parsers {
+		err = parser.Apply(data)
+		if err == nil {
+			return
 		}
 	}
-	return err
+	if err != nil {
+		if r.logger.Enabled(context.Background(), slog.LevelDebug) {
+			r.logger.Warn("Coundnt parse data with any defiend Parser",
+				"InputTag", data.InputTag,
+				"error", err,
+				"rawData", string(data.RawData),
+				"filepath", data.Metadata["filepath"],
+			)
+		} else {
+			r.logger.Warn("Coundnt parse data with any defiend Parser", "InputTag", data.InputTag)
+		}
+	}
 }
 
-func (r *Router) ApplyFilter(data *util.Event) (bool, error) {
-	var err error
-	pass := true
-	for _, filter := range filter.AvailableFilters {
-		if util.TagMatch(data.InputTag, filter.GetMatch()) {
-			pass, err = filter.Apply(data)
-			if err == nil && pass {
-				break
-			}
+func (r *Router) ApplyFilters(data *util.Event) bool {
+	for _, filter := range r.filters {
+		if passed := filter.Apply(data); !passed {
+			return false
 		}
 	}
-	return pass, err
+	return true
 }
 
 func (r *Router) StartHandlerLoop() {
 	defer r.wg.Done()
 	// Read from input and route to outputs
 	for data := range r.input.Read() {
-		// Apply parser
-		err := r.ApplyParser(&data)
-		if err != nil {
-			r.logger.Warn("Coundnt parse data with any defiend Parser", "InputTag", data.InputTag)
+		r.ApplyParsers(&data)
+
+		if passed := r.ApplyFilters(&data); !passed {
+			r.logger.Debug("skip sending log data based on filter", "InputTag", data.InputTag)
 			continue
 		}
 

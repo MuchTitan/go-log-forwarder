@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Define the target directory
-TARGET_DIR="./test"
+TARGET_DIR="./logs"
 mkdir -p "$TARGET_DIR"
 
 # Number of files to generate
-FILE_COUNT=500
+FILE_COUNT=1000
 
 # Function to generate a single JSON line
 generate_json_line() {
@@ -20,17 +20,19 @@ generate_json_line() {
 generate_file() {
     local file_num=$1
     local file_name="${TARGET_DIR}/file_${file_num}.log"
-    local line_count=$(shuf -i 10-100 -n 1)
+    local line_count=$(shuf -i 25-75 -n 1)
 
-    # Create/truncate the file
+    # Delete the file if it exists, then create/truncate it
+    rm -f "$file_name"
     : >"$file_name"
 
-    # Generate and write lines directly
+    # Generate and write lines
     for ((j = 1; j <= line_count; j++)); do
         generate_json_line >>"$file_name"
     done
 
-    echo "Created file_${file_num}.json with $line_count lines"
+    # Print line count to stdout for aggregation
+    echo "$line_count"
 }
 
 export -f generate_file
@@ -45,10 +47,7 @@ if ! command -v parallel &>/dev/null; then
     exit 1
 fi
 
-# Generate files in parallel
-# --jobs 0 means use all available CPU cores
-# --bar shows a progress bar
-seq 1 $FILE_COUNT |
-    parallel --bar --jobs 12 generate_file
+# Generate files in parallel and sum line counts
+ALL_LINES=$(seq 1 $FILE_COUNT | parallel --bar --jobs 12 generate_file | awk '{s+=$1} END {print s}')
 
-echo "Created $FILE_COUNT JSON files in $TARGET_DIR"
+echo "Wrote $ALL_LINES log lines into $FILE_COUNT test log files"

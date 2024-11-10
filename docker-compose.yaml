@@ -1,0 +1,14 @@
+services:
+  logforwarder:
+    build: .
+    volumes:
+      - ./cfg:/app/cfg:ro # Mount config directory as read-only
+      - ./logs/:/app/logs # Persistent volume for logs
+      - ./db/:/app/db:rw
+    extra_hosts:
+      - "host.docker.internal:172.17.0.1"
+    network_mode: "host"
+    restart: unless-stopped
+    environment:
+      - TZ=UTC
+      - Splunk_Token=${SPLUNK_TOKEN}

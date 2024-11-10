@@ -21,21 +21,21 @@ const (
 )
 
 type InTCP struct {
+	ctx               context.Context
+	listener          net.Listener
+	sendCh            chan util.Event
+	cancel            context.CancelFunc
+	wg                *sync.WaitGroup
+	logger            *slog.Logger
+	connCountMutex    *sync.RWMutex
+	activeConns       *sync.Map
+	ListenAddr        string `mapstructure:"ListenAddr"`
 	addr              string
 	InputTag          string        `mapstructure:"Tag"`
-	ListenAddr        string        `mapstructure:"ListenAddr"`
 	Port              int           `mapstructure:"Port"`
 	BufferSize        int64         `mapstructure:"BufferSize"`
 	ConnectionTimeout time.Duration `mapstructure:"ConnectionTimeout"`
-	ctx               context.Context
-	cancel            context.CancelFunc
-	wg                *sync.WaitGroup
-	sendCh            chan util.Event
-	logger            *slog.Logger
 	connCount         int32
-	connCountMutex    *sync.RWMutex
-	listener          net.Listener
-	activeConns       *sync.Map
 }
 
 func ParseTCP(input map[string]interface{}, logger *slog.Logger) (InTCP, error) {

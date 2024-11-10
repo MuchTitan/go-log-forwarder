@@ -25,10 +25,10 @@ type InHTTP struct {
 	wg         *sync.WaitGroup
 	addr       string
 	ListenAddr string `mapstructure:"Listen"`
-	Port       int    `mapstructure:"Port"`
 	InputTag   string `mapstructure:"Tag"`
-	VerifyTLS  bool   `mapstructure:"VerifyTLS"`
+	Port       int    `mapstructure:"Port"`
 	BufferSize int64  `mapstructure:"BufferSize"`
+	VerifyTLS  bool   `mapstructure:"VerifyTLS"`
 }
 
 func ParseHttp(input map[string]interface{}, logger *slog.Logger) (InHTTP, error) {

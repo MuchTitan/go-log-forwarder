@@ -17,16 +17,16 @@ const (
 )
 
 type InUDP struct {
-	addr       string
-	InputTag   string `mapstructure:"Tag"`
-	ListenAddr string `mapstructure:"ListenAddr"`
-	Port       int    `mapstructure:"Port"`
-	BufferSize int64  `mapstructure:"BufferSize"`
 	ctx        context.Context
 	cancel     context.CancelFunc
 	sendCh     chan util.Event
 	listener   *net.UDPConn
 	logger     *slog.Logger
+	addr       string
+	InputTag   string `mapstructure:"Tag"`
+	ListenAddr string `mapstructure:"ListenAddr"`
+	Port       int    `mapstructure:"Port"`
+	BufferSize int64  `mapstructure:"BufferSize"`
 }
 
 func ParseUDP(input map[string]interface{}, logger *slog.Logger) (InUDP, error) {

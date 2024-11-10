@@ -24,19 +24,19 @@ import (
 // and sends their content through a channel. It supports multiple files and maintains
 // their reading state persistently.
 type Tail struct {
-	Glob            string    `mapstructure:"Glob"`
-	InputTag        string    `mapstructure:"Tag"`
-	FilenameKey     string    `mapstructure:"FilenameKey"`
-	files           *sync.Map // Thread-safe map for file states
+	ctx             context.Context
+	logger          *slog.Logger
+	files           *sync.Map
 	timers          *sync.Map
 	watcher         *fsnotify.Watcher
-	logger          *slog.Logger
-	sendChan        chan util.Event // chan for all writes from the file tails
-	ctx             context.Context
+	sendChan        chan util.Event
 	cancel          context.CancelFunc
 	wg              *sync.WaitGroup
 	db              *sql.DB
 	stateUpdateChan chan stateUpdate
+	FilenameKey     string `mapstructure:"FilenameKey"`
+	Glob            string `mapstructure:"Glob"`
+	InputTag        string `mapstructure:"Tag"`
 }
 
 type stateUpdate struct {
@@ -46,9 +46,9 @@ type stateUpdate struct {
 
 type TailFileState struct {
 	path         string
+	checksum     []byte
 	seekOffset   int64
 	lastSendLine int64
-	checksum     []byte
 	iNodeNumber  uint64
 }
 

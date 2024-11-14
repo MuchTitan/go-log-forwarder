@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/mitchellh/mapstructure"
 )
 
@@ -27,11 +26,11 @@ type Tail struct {
 	ctx             context.Context
 	logger          *slog.Logger
 	files           *sync.Map
-	timers          *sync.Map
-	watcher         *fsnotify.Watcher
+	fileEventCH     chan string
+	readIsRunning   *sync.Map
 	sendChan        chan util.Event
 	cancel          context.CancelFunc
-	wg              *sync.WaitGroup
+	globalWg        *sync.WaitGroup
 	db              *sql.DB
 	stateUpdateChan chan stateUpdate
 	FilenameKey     string `mapstructure:"FilenameKey"`
@@ -52,11 +51,6 @@ type TailFileState struct {
 	iNodeNumber  uint64
 }
 
-type debounceState struct {
-	timer  *time.Timer
-	cancel context.CancelFunc
-}
-
 // ParseTail creates a new Tail instance from a configuration map.
 // It initializes the necessary channels, maps, and file watcher.
 // Returns an error if the configuration is invalid or watcher creation fails.
@@ -64,22 +58,16 @@ func ParseTail(input map[string]interface{}, logger *slog.Logger) (Tail, error) 
 	tail := Tail{
 		logger:          logger,
 		files:           &sync.Map{},
-		timers:          &sync.Map{},
 		sendChan:        make(chan util.Event),
+		fileEventCH:     make(chan string, 1000),
+		readIsRunning:   &sync.Map{},
 		stateUpdateChan: make(chan stateUpdate, 1000),
-		wg:              &sync.WaitGroup{},
+		globalWg:        &sync.WaitGroup{},
 	}
 	err := mapstructure.Decode(input, &tail)
 	if err != nil {
 		return tail, err
 	}
-
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return tail, err
-	}
-
-	tail.watcher = watcher
 
 	if tail.Glob == "" {
 		return tail, fmt.Errorf("No Glob provided in tail input")
@@ -101,7 +89,7 @@ func ParseTail(input map[string]interface{}, logger *slog.Logger) (Tail, error) 
 func (t *Tail) persistStates() {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	defer t.wg.Done()
+	defer t.globalWg.Done()
 
 	var updates []stateUpdate
 	for {
@@ -185,11 +173,20 @@ func (t *Tail) getTailFileStateFromDB(path string, inodeNum uint64) (TailFileSta
 
 func (t *Tail) updateFileState(path string, state TailFileState) {
 	t.files.Store(path, state)
+	t.setFileReadingState(path, false)
 	// Send state update to be processed in batch
 	select {
 	case t.stateUpdateChan <- stateUpdate{path: path, state: state}:
 	default:
 		t.logger.Warn("State update channel full, skipping persistence")
+	}
+}
+
+func (t *Tail) sendFileEvent(path string) {
+	select {
+	case t.fileEventCH <- path:
+	default:
+		t.logger.Warn("file event overflow")
 	}
 }
 
@@ -273,13 +270,93 @@ func newFileTailState(path string) TailFileState {
 	}
 }
 
-// handleNewFileTail processes a new file to be tailed.
-// It either recovers the previous state from the database or creates a new state
-// if the file hasn't been seen before or has changed.
-func (t *Tail) handleNewFileTail(path string) {
+func (t *Tail) buildMetadata(state TailFileState) map[string]interface{} {
+	output := make(map[string]interface{})
+
+	if t.FilenameKey != "" {
+		output[t.FilenameKey] = state.path
+	}
+
+	return output
+}
+
+func (t *Tail) fileStatLoop() {
+	ticker := time.NewTicker(time.Second * 2)
+	defer ticker.Stop()
+	defer t.globalWg.Done()
+	initialStats := make(map[string]os.FileInfo)
+
+	matches, err := filepath.Glob(t.Glob)
+	if err != nil {
+		panic(err)
+	}
+	for _, path := range matches {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			continue
+		}
+		info, err := os.Stat(absPath)
+		if err != nil {
+			continue
+		}
+		if !info.IsDir() {
+			initialStats[absPath] = info
+			t.sendFileEvent(absPath)
+		}
+	}
+
+	for {
+		select {
+		case <-t.ctx.Done():
+			return
+		case <-ticker.C:
+			matches, err := filepath.Glob(t.Glob)
+			if err != nil {
+				t.logger.Error("coundnt get files for glob", "error", err)
+				continue
+			}
+			for _, path := range matches {
+				absPath, err := filepath.Abs(path)
+				if err != nil {
+					continue
+				}
+				info, err := os.Stat(absPath)
+				if err != nil {
+					continue
+				}
+				if !info.IsDir() {
+					prevInfo, exists := initialStats[absPath]
+					if !exists || !prevInfo.ModTime().Equal(info.ModTime()) {
+						initialStats[absPath] = info
+						t.sendFileEvent(absPath)
+					}
+				}
+			}
+		}
+	}
+}
+
+func (t *Tail) setFileReadingState(path string, state bool) {
+	t.readIsRunning.Store(path, state)
+}
+
+func (t *Tail) isFileReading(path string) bool {
+	if state, exists := t.readIsRunning.Load(path); exists {
+		return state.(bool)
+	}
+	return false
+}
+
+func (t *Tail) HandleFileEvent(path string) {
+	defer t.globalWg.Done()
+	if t.isFileReading(path) {
+		return
+	}
+	t.setFileReadingState(path, true)
+
 	currINodeNum, err := util.GetInodeNumber(path)
 	if err != nil {
-		t.logger.Error("Coundnt get InodeNum", "error", err, "path", path)
+		t.logger.Error("Cant get INodeNum", "error", err, "path", path)
 		return
 	}
 	if savedState, exists := t.getTailFileStateFromDB(path, currINodeNum); exists {
@@ -304,115 +381,6 @@ func (t *Tail) handleNewFileTail(path string) {
 	t.updateFileState(path, newState)
 }
 
-func (t *Tail) handleWriteEvent(event *fsnotify.Event) {
-	defer t.wg.Done()
-	if stateVal, found := t.files.Load(event.Name); found {
-		state := stateVal.(TailFileState)
-		if !CheckIfPathIsStillTheSameFile(event.Name, state) {
-			t.handleNewFileTail(event.Name)
-			return
-		}
-
-		newState, err := t.readFile(event.Name, state)
-		if err != nil {
-			t.logger.Error("Couldn't read from file", "error", err, "path", event.Name)
-			return
-		}
-		t.updateFileState(event.Name, newState)
-	} else {
-		t.handleNewFileTail(event.Name)
-	}
-}
-
-func (t *Tail) handleWriteEventWithDebounce(event *fsnotify.Event) {
-	const debounceDuration = 200 * time.Millisecond
-
-	// Cancel any existing debounce operation for this file
-	if stateVal, exists := t.timers.Load(event.Name); exists {
-		state := stateVal.(*debounceState)
-		state.cancel() // Cancel previous goroutine
-		state.timer.Stop()
-	}
-
-	// Create new timer and context for this debounce operation
-	timer := time.NewTimer(debounceDuration)
-	ctx, cancel := context.WithCancel(t.ctx)
-
-	t.timers.Store(event.Name, &debounceState{
-		timer:  timer,
-		cancel: cancel,
-	})
-
-	go func() {
-		defer cancel() // Clean up when done
-		select {
-		case <-timer.C:
-			t.wg.Add(1)
-			t.handleWriteEvent(event)
-			t.timers.Delete(event.Name)
-		case <-ctx.Done():
-			return
-		}
-	}()
-}
-
-func (t *Tail) handleRemoveEvent(event *fsnotify.Event) {
-	defer t.wg.Done()
-	// Stop the timer associated with this file if it exists
-	if timerVal, found := t.timers.Load(event.Name); found {
-		timer := timerVal.(*time.Timer)
-		timer.Stop()
-		t.timers.Delete(event.Name) // Remove the timer from the map
-	}
-
-	t.files.Delete(event.Name)
-}
-
-func (t *Tail) handleCreateEvent(event *fsnotify.Event) {
-	isDir, err := isPathDirectory(event.Name)
-	if err != nil {
-		t.logger.Warn("Couldn't check if filepath is directory in tail", "error", err, "path", event.Name)
-		return
-	}
-
-	// Check if the directory matches the glob pattern
-	matchesGlob, err := filepath.Match(t.Glob, event.Name)
-	if err != nil {
-		t.logger.Warn("Error matching glob pattern", "error", err, "pattern", t.Glob, "path", event.Name)
-		return
-	}
-
-	if !isDir && matchesGlob {
-		err = t.watcher.Add(event.Name)
-		if err != nil {
-			t.logger.Error("Failed to add file to watcher", "error", err, "path", event.Name)
-		}
-	}
-}
-
-func (t *Tail) readInitialFiles() {
-	defer t.wg.Done()
-	matches, _ := filepath.Glob(t.Glob)
-	for _, match := range matches {
-		select {
-		case <-t.ctx.Done():
-			return
-		default:
-			t.handleNewFileTail(match)
-		}
-	}
-}
-
-func (t *Tail) buildMetadata(state TailFileState) map[string]interface{} {
-	output := make(map[string]interface{})
-
-	if t.FilenameKey != "" {
-		output[t.FilenameKey] = state.path
-	}
-
-	return output
-}
-
 // Start begins monitoring files that match the configured glob pattern.
 // It starts multiple goroutines to:
 // - Watch for file system events
@@ -421,49 +389,20 @@ func (t *Tail) buildMetadata(state TailFileState) map[string]interface{} {
 // - Process initial files
 func (t Tail) Start() {
 	t.logger.Info("Starting file tail", "glob", t.Glob)
+	t.globalWg.Add(2)
 	go func() {
-		rootPath := filepath.Dir(t.Glob)
-		err := t.watcher.Add(rootPath)
-		if err != nil {
-			t.logger.Error("error while adding root path to watcher", "error", err, "rootPath", rootPath)
-			return
-		}
-
-		t.wg.Add(2)
 		go t.persistStates()
-		t.readInitialFiles()
+		go t.fileStatLoop()
 		for {
 			select {
 			case <-t.ctx.Done():
 				return
-			case event, ok := <-t.watcher.Events:
+			case path, ok := <-t.fileEventCH:
 				if !ok {
 					return
 				}
-
-				switch {
-				case event.Has(fsnotify.Remove):
-					t.wg.Add(1)
-					t.handleRemoveEvent(&event)
-				case event.Has(fsnotify.Create):
-					t.handleCreateEvent(&event)
-				case event.Has(fsnotify.Write):
-					t.handleWriteEventWithDebounce(&event)
-				}
-
-			case err, ok := <-t.watcher.Errors:
-				if !ok {
-					return
-				}
-
-				if err == nil {
-					continue
-				}
-				if err == fsnotify.ErrEventOverflow {
-					t.logger.Warn("watcher has a event overflow")
-					continue
-				}
-				t.logger.Error("watcher error", "error", err)
+				t.globalWg.Add(1)
+				go t.HandleFileEvent(path)
 			}
 		}
 	}()
@@ -476,11 +415,11 @@ func (t Tail) Read() <-chan util.Event {
 // Stop gracefully shuts down the tail operation.
 // It cancels the context, closes the watcher, and waits for all goroutines to finish.
 func (t Tail) Stop() {
+	t.logger.Info("Stopping file tail", "glob", t.Glob)
 	if t.ctx != nil {
 		t.cancel()
 	}
-	t.watcher.Close()
-	t.wg.Wait()
+	t.globalWg.Wait()
 	close(t.sendChan)
 	close(t.stateUpdateChan)
 }

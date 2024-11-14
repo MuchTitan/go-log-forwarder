@@ -12,7 +12,6 @@ import (
 
 var DB *sql.DB
 
-// OpenDB initializes the SQLite3 database with WAL mode and creates necessary tables.
 func OpenDB(dbFile string) error {
 	var err error
 	DB, err = sql.Open("sqlite3", dbFile)

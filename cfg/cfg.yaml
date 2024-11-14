@@ -1,5 +1,5 @@
 System:
-  loglevel: INFO
+  loglevel: DEBUG
   dbfile: "./state.db"
   logfile: "./forwarder.log"
 
@@ -24,7 +24,7 @@ Outputs:
     Host: "localhost"
     Port: 8088
     Token: "${Splunk_Token}"
-    VerifyTLS: true
+    VerifyTLS: false
     SendRaw: false
     EventSourceType: "application-log"
     EventIndex: "test"

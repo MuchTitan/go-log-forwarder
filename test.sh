@@ -5,7 +5,7 @@ TARGET_DIR="./logs"
 mkdir -p "$TARGET_DIR"
 
 # Number of files to generate
-FILE_COUNT=1000
+FILE_COUNT=500
 
 # Function to generate a single JSON line
 generate_json_line() {

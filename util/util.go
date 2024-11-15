@@ -14,11 +14,12 @@ import (
 )
 
 type Event struct {
-	ParsedData map[string]interface{}
-	InputTag   string
-	Metadata   map[string]interface{}
-	RawData    []byte
-	Time       int64
+	ParsedData  map[string]interface{}
+	Metadata    map[string]interface{}
+	InputTag    string
+	InputSource string
+	RawData     []byte
+	Time        int64
 }
 
 type MultiWriter struct {

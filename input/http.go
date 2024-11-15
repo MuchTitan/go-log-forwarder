@@ -108,9 +108,10 @@ func (h InHTTP) handleReq(w http.ResponseWriter, r *http.Request) {
 		}
 		linenumber++
 		logLines <- util.Event{
-			RawData:  line,
-			Time:     currTime,
-			InputTag: h.GetTag(),
+			RawData:     line,
+			Time:        currTime,
+			InputSource: "http",
+			InputTag:    h.GetTag(),
 		}
 	}
 

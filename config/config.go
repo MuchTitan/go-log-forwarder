@@ -137,6 +137,14 @@ func DecodeOutputs(outputsList []map[string]interface{}) {
 			cfg.Logger.Debug("Loaded this output stdout config", "Config", stdout)
 			output.AvailableOutputs = append(output.AvailableOutputs, stdout)
 
+		case "counter":
+			counter, err := output.ParseCounter(outputCfg, cfg.Logger)
+			if err != nil {
+				panic(err)
+			}
+			cfg.Logger.Debug("Loaded this output counter config", "Config", counter)
+			output.AvailableOutputs = append(output.AvailableOutputs, counter)
+
 		default:
 			cfg.Logger.Warn("Not a implemented Output", "Name", outputCfg["Name"])
 		}

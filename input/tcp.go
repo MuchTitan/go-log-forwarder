@@ -182,10 +182,11 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 
 				select {
 				case iTcp.sendCh <- util.Event{
-					RawData:  buffer[:n],
-					Time:     time.Now().Unix(),
-					InputTag: iTcp.GetTag(),
-					Metadata: metadata,
+					RawData:     buffer[:n],
+					Time:        time.Now().Unix(),
+					InputTag:    iTcp.GetTag(),
+					InputSource: "tcp",
+					Metadata:    metadata,
 				}:
 				default:
 					iTcp.logger.Warn("Event channel full, dropping message", "remote_addr", remoteAddr)

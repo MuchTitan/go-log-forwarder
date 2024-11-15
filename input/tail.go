@@ -245,10 +245,11 @@ func (t *Tail) readFile(path string, state TailFileState) (TailFileState, error)
 		}
 
 		t.sendChan <- util.Event{
-			RawData:  []byte(line),
-			InputTag: t.GetTag(),
-			Metadata: t.buildMetadata(state),
-			Time:     time.Now().Unix(),
+			RawData:     []byte(line),
+			InputTag:    t.GetTag(),
+			InputSource: "tail",
+			Metadata:    t.buildMetadata(state),
+			Time:        time.Now().Unix(),
 		}
 	}
 }

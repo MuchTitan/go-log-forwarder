@@ -97,10 +97,11 @@ func (iUdp InUDP) Start() {
 					// Send the event to the channel
 					select {
 					case iUdp.sendCh <- util.Event{
-						RawData:  buffer[:n],
-						Time:     time.Now().Unix(),
-						InputTag: iUdp.GetTag(),
-						Metadata: metadata,
+						RawData:     buffer[:n],
+						Time:        time.Now().Unix(),
+						InputTag:    iUdp.GetTag(),
+						InputSource: "udp",
+						Metadata:    metadata,
 					}:
 					default:
 						iUdp.logger.Warn("Event channel full, dropping message", "remote_addr", remoteAddr)

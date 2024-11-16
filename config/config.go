@@ -144,6 +144,13 @@ func DecodeOutputs(outputsList []map[string]interface{}) {
 			}
 			cfg.Logger.Debug("Loaded this output counter config", "Config", counter)
 			output.AvailableOutputs = append(output.AvailableOutputs, counter)
+		case "gelf":
+			gelf, err := output.ParseGELF(outputCfg, cfg.Logger)
+			if err != nil {
+				panic(err)
+			}
+			cfg.Logger.Debug("Loaded this output gelf config", "Config", gelf)
+			output.AvailableOutputs = append(output.AvailableOutputs, gelf)
 
 		default:
 			cfg.Logger.Warn("Not a implemented Output", "Name", outputCfg["Name"])

@@ -92,57 +92,57 @@ func (t *Tail) persistStates() {
 	defer t.globalWg.Done()
 
 	var updates []stateUpdate
+	persistStates := func() {
+		if len(updates) == 0 {
+		}
+
+		// Begin transaction
+		tx, err := t.db.Begin()
+		if err != nil {
+			t.logger.Error("Failed to begin transaction", "error", err)
+		}
+
+		stmt, err := tx.Prepare(`
+				INSERT OR REPLACE INTO tail_file_state (filepath, seek_offset, checksum, last_send_line, inode_number)
+				VALUES (?, ?, ?, ?, ?)
+			`)
+		if err != nil {
+			t.logger.Error("Failed to prepare statement", "error", err)
+			tx.Rollback()
+		}
+
+		for _, update := range updates {
+			_, err := stmt.Exec(
+				update.path,
+				update.state.seekOffset,
+				update.state.checksum,
+				update.state.lastSendLine,
+				update.state.iNodeNumber,
+			)
+			if err != nil {
+				t.logger.Error("Failed to execute statement", "error", err)
+				continue
+			}
+		}
+
+		stmt.Close()
+		err = tx.Commit()
+		if err != nil {
+			t.logger.Error("Failed to commit transaction", "error", err)
+			tx.Rollback()
+		}
+
+		updates = updates[:0] // Clear the slice
+	}
 	for {
 		select {
 		case <-t.ctx.Done():
+			persistStates()
 			return
 		case update := <-t.stateUpdateChan:
 			updates = append(updates, update)
 		case <-ticker.C:
-			if len(updates) == 0 {
-				continue
-			}
-
-			// Begin transaction
-			tx, err := t.db.Begin()
-			if err != nil {
-				t.logger.Error("Failed to begin transaction", "error", err)
-				continue
-			}
-
-			stmt, err := tx.Prepare(`
-				INSERT OR REPLACE INTO tail_file_state (filepath, seek_offset, checksum, last_send_line, inode_number)
-				VALUES (?, ?, ?, ?, ?)
-			`)
-			if err != nil {
-				t.logger.Error("Failed to prepare statement", "error", err)
-				tx.Rollback()
-				continue
-			}
-
-			for _, update := range updates {
-				_, err := stmt.Exec(
-					update.path,
-					update.state.seekOffset,
-					update.state.checksum,
-					update.state.lastSendLine,
-					update.state.iNodeNumber,
-				)
-				if err != nil {
-					t.logger.Error("Failed to execute statement", "error", err)
-					continue
-				}
-			}
-
-			stmt.Close()
-			err = tx.Commit()
-			if err != nil {
-				t.logger.Error("Failed to commit transaction", "error", err)
-				tx.Rollback()
-				continue
-			}
-
-			updates = updates[:0] // Clear the slice
+			persistStates()
 		}
 	}
 }

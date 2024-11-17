@@ -2,7 +2,6 @@ package util
 
 import (
 	"bufio"
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -10,7 +9,6 @@ import (
 	"reflect"
 	"strings"
 	"syscall"
-	"time"
 )
 
 type Event struct {
@@ -82,20 +80,6 @@ func TagMatch(inputTag, match string) bool {
 	return true
 }
 
-func RemoveIndexFromSlice[T any](slice []T, index int) []T {
-	if index < 0 || index >= len(slice) {
-		// Return the original slice if index is out of bounds
-		return slice
-	}
-
-	return append(slice[:index], slice[index+1:]...)
-}
-
-func FileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
 func GetInodeNumber(filepath string) (uint64, error) {
 	fileInfo, err := os.Stat(filepath)
 	if err != nil {
@@ -147,16 +131,4 @@ func MergeMaps(m1, m2 map[string]interface{}) map[string]interface{} {
 		m1[k] = v
 	}
 	return m1
-}
-
-func ExecutePeriodically(ctx context.Context, seconds int, f func()) {
-	timer := time.NewTicker(time.Second * time.Duration(seconds))
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-			f()
-		}
-	}
 }

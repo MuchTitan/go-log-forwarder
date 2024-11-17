@@ -26,8 +26,8 @@ type Tail struct {
 	ctx             context.Context
 	logger          *slog.Logger
 	files           *sync.Map
+	timers          *sync.Map
 	fileEventCH     chan string
-	readIsRunning   *sync.Map
 	sendChan        chan util.Event
 	cancel          context.CancelFunc
 	globalWg        *sync.WaitGroup
@@ -58,9 +58,9 @@ func ParseTail(input map[string]interface{}, logger *slog.Logger) (Tail, error) 
 	tail := Tail{
 		logger:          logger,
 		files:           &sync.Map{},
+		timers:          &sync.Map{},
 		sendChan:        make(chan util.Event),
 		fileEventCH:     make(chan string, 1000),
-		readIsRunning:   &sync.Map{},
 		stateUpdateChan: make(chan stateUpdate, 1000),
 		globalWg:        &sync.WaitGroup{},
 	}
@@ -173,7 +173,6 @@ func (t *Tail) getTailFileStateFromDB(path string, inodeNum uint64) (TailFileSta
 
 func (t *Tail) updateFileState(path string, state TailFileState) {
 	t.files.Store(path, state)
-	t.setFileReadingState(path, false)
 	// Send state update to be processed in batch
 	select {
 	case t.stateUpdateChan <- stateUpdate{path: path, state: state}:
@@ -282,7 +281,7 @@ func (t *Tail) buildMetadata(state TailFileState) map[string]interface{} {
 }
 
 func (t *Tail) fileStatLoop() {
-	ticker := time.NewTicker(time.Second * 2)
+	ticker := time.NewTicker(time.Millisecond * 100)
 	defer ticker.Stop()
 	defer t.globalWg.Done()
 	initialStats := make(map[string]os.FileInfo)
@@ -337,23 +336,8 @@ func (t *Tail) fileStatLoop() {
 	}
 }
 
-func (t *Tail) setFileReadingState(path string, state bool) {
-	t.readIsRunning.Store(path, state)
-}
-
-func (t *Tail) isFileReading(path string) bool {
-	if state, exists := t.readIsRunning.Load(path); exists {
-		return state.(bool)
-	}
-	return false
-}
-
 func (t *Tail) HandleFileEvent(path string) {
 	defer t.globalWg.Done()
-	if t.isFileReading(path) {
-		return
-	}
-	t.setFileReadingState(path, true)
 
 	currINodeNum, err := util.GetInodeNumber(path)
 	if err != nil {
@@ -363,6 +347,7 @@ func (t *Tail) HandleFileEvent(path string) {
 	if savedState, exists := t.getTailFileStateFromDB(path, currINodeNum); exists {
 		// Verify if the file is still the same
 		if CheckIfPathIsStillTheSameFile(path, savedState) {
+			t.deleteTimer(path)
 			newState, err := t.readFile(path, savedState)
 			if err != nil {
 				t.logger.Error("Couldn't read from file with saved state", "error", err)
@@ -380,6 +365,40 @@ func (t *Tail) HandleFileEvent(path string) {
 		t.logger.Error("Couldn't read from file", "error", err)
 	}
 	t.updateFileState(path, newState)
+}
+
+func (t *Tail) deleteTimer(path string) {
+	if _, exists := t.timers.Load(path); exists {
+		t.timers.Delete(path)
+	}
+}
+
+func (t *Tail) HandleFileEventWithDebounce(path string) {
+	waitTime := time.Second
+
+	// Load or create timer with proper locking
+	actual, _ := t.timers.LoadOrStore(path, &sync.Mutex{})
+	mutex := actual.(*sync.Mutex)
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	// Get existing timer
+	value, exists := t.timers.Load(path + "_timer")
+	if exists {
+		timer := value.(*time.Timer)
+		timer.Stop()
+	}
+
+	// Create new timer
+	timer := time.AfterFunc(waitTime, func() {
+		t.globalWg.Add(1)
+		t.HandleFileEvent(path)
+		// Cleanup after execution
+		t.timers.Delete(path + "_timer")
+		t.timers.Delete(path)
+	})
+
+	t.timers.Store(path+"_timer", timer)
 }
 
 // Start begins monitoring files that match the configured glob pattern.
@@ -402,8 +421,7 @@ func (t Tail) Start() {
 				if !ok {
 					return
 				}
-				t.globalWg.Add(1)
-				go t.HandleFileEvent(path)
+				go t.HandleFileEventWithDebounce(path)
 			}
 		}
 	}()

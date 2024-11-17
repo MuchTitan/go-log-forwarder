@@ -11,4 +11,4 @@ services:
     restart: unless-stopped
     environment:
       - TZ=UTC
-      - Splunk_Token=${SPLUNK_TOKEN}
+      - Splunk_Token=${Splunk_Token}

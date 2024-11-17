@@ -1,5 +1,5 @@
 System:
-  loglevel: DEBUG
+  loglevel: INFO
   dbfile: "./state.db"
   logfile: "./forwarder.log"
 
@@ -19,14 +19,12 @@ Parsers:
     AllowEmtpy: false
 
 Outputs:
-  - Name: "counter"
+  - Name: "splunk"
     Match: "*"
-  # - Name: "splunk"
-  #   Match: "*"
-  #   Host: "localhost"
-  #   Port: 8088
-  #   Token: "${Splunk_Token}"
-  #   VerifyTLS: false
-  #   SendRaw: false
-  #   EventSourceType: "application-log"
-  #   EventIndex: "test"
+    Host: "localhost"
+    Port: 8088
+    Token: "${Splunk_Token}"
+    VerifyTLS: false
+    SendRaw: false
+    EventSourceType: "application-log"
+    EventIndex: "test"

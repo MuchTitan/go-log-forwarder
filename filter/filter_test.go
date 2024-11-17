@@ -13,9 +13,9 @@ func TestUtil(t *testing.T) {
 	t.Run("TestGrep", func(t *testing.T) {
 		currentTime := time.Now().Unix()
 		testData := []struct {
+			data   *util.Event
 			name   string
 			g      Grep
-			data   *util.Event
 			expect bool
 		}{
 			{

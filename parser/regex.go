@@ -11,11 +11,12 @@ import (
 
 type Regex struct {
 	logger      *slog.Logger
+	re          *regexp.Regexp
+	Types       map[string]string `mapstructure:"Types"`
 	FilterMatch string            `mapstructure:"Match"`
 	Pattern     string            `mapstructure:"Pattern"`
 	TimeKey     string            `mapstructure:"TimeKey"`
 	TimeFormat  string            `mapstructure:"TimeFormat"`
-	Types       map[string]string `mapstructure:"Types"`
 	AllowEmpty  bool              `mapstructure:"AllowEmpty"`
 }
 
@@ -29,19 +30,16 @@ func ParseRegex(input map[string]interface{}, logger *slog.Logger) (Regex, error
 	if regex.Pattern == "" {
 		return regex, fmt.Errorf("For regex parser is not Pattern defiend")
 	}
+
+	regex.re = regexp.MustCompile(regex.Pattern)
 	regex.logger = logger
 
 	return regex, nil
 }
 
 func (r Regex) Apply(data *util.Event) error {
-	re, err := regexp.Compile(r.Pattern)
-	if err != nil {
-		return fmt.Errorf("invalid regex pattern: %v", err)
-	}
-
 	lineData := string(data.RawData)
-	matches := re.FindStringSubmatch(lineData)
+	matches := r.re.FindStringSubmatch(lineData)
 
 	if matches == nil {
 		return fmt.Errorf("no matches found for line data: '%s'", lineData)
@@ -49,7 +47,7 @@ func (r Regex) Apply(data *util.Event) error {
 
 	// Extract named groups
 	decodedData := make(map[string]interface{})
-	for i, name := range re.SubexpNames() {
+	for i, name := range r.re.SubexpNames() {
 		if i != 0 && name != "" {
 			if r.AllowEmpty {
 				decodedData[name] = matches[i]
@@ -61,7 +59,7 @@ func (r Regex) Apply(data *util.Event) error {
 			}
 		}
 	}
-	for i, name := range re.SubexpNames() {
+	for i, name := range r.re.SubexpNames() {
 		if i != 0 && name != "" {
 			if r.AllowEmpty {
 				decodedData[name] = matches[i]
@@ -81,7 +79,7 @@ func (r Regex) Apply(data *util.Event) error {
 		return nil
 	}
 
-	err = ExtractTimeKey(r.TimeKey, r.TimeFormat, data)
+	err := ExtractTimeKey(r.TimeKey, r.TimeFormat, data)
 	if err != nil {
 		fmt.Println(err)
 	}

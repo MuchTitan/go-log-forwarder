@@ -3,14 +3,12 @@ package parser
 import (
 	"fmt"
 	"log-forwarder-client/util"
-	"log/slog"
 	"regexp"
 
 	"github.com/mitchellh/mapstructure"
 )
 
 type Regex struct {
-	logger      *slog.Logger
 	re          *regexp.Regexp
 	Types       map[string]string `mapstructure:"Types"`
 	FilterMatch string            `mapstructure:"Match"`
@@ -20,7 +18,7 @@ type Regex struct {
 	AllowEmpty  bool              `mapstructure:"AllowEmpty"`
 }
 
-func ParseRegex(input map[string]interface{}, logger *slog.Logger) (Regex, error) {
+func ParseRegex(input map[string]interface{}) (Regex, error) {
 	regex := Regex{}
 	err := mapstructure.Decode(input, &regex)
 	if err != nil {
@@ -32,7 +30,6 @@ func ParseRegex(input map[string]interface{}, logger *slog.Logger) (Regex, error
 	}
 
 	regex.re = regexp.MustCompile(regex.Pattern)
-	regex.logger = logger
 
 	return regex, nil
 }

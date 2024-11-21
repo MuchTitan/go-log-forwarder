@@ -19,18 +19,16 @@ type RetryData struct {
 }
 
 type RetryQueue struct {
-	logger *slog.Logger
 	doneCh chan struct{}
-	queue  []RetryData
 	db     *sql.DB
+	queue  []RetryData
 	mu     sync.Mutex
 }
 
-func NewRetryQueue(logger *slog.Logger) *RetryQueue {
+func NewRetryQueue() *RetryQueue {
 	return &RetryQueue{
 		doneCh: make(chan struct{}),
 		queue:  []RetryData{},
-		logger: logger,
 		db:     database.GetDB(),
 	}
 }
@@ -52,7 +50,7 @@ func (rq *RetryQueue) RetryHandlerLoop(routerID int64) {
 		select {
 		case <-ticker.C:
 			if len(rq.queue) > 100 {
-				rq.logger.Warn("More than 100 elements in RetryQueue", "amount", len(rq.queue))
+				slog.Warn("More than 100 elements in RetryQueue", "amount", len(rq.queue))
 			}
 
 			var remainingData []RetryData
@@ -74,12 +72,12 @@ func (rq *RetryQueue) RetryHandlerLoop(routerID int64) {
 					remainingData = append(remainingData, data)
 					err := rq.UpdateOutputsInDB(data, routerID, failedOutputs)
 					if err != nil {
-						rq.logger.Error("coundnt update outputs in retry_data", "error", err, "routerID", routerID)
+						slog.Error("coundnt update outputs in retry_data", "error", err, "routerID", routerID)
 					}
 				} else {
 					err := rq.SetSuccessStateInDB(data, routerID)
 					if err != nil {
-						rq.logger.Error("coundnt set success state in retry_data", "error", err, "routerID", routerID)
+						slog.Error("coundnt set success state in retry_data", "error", err, "routerID", routerID)
 					}
 				}
 				rq.mu.Unlock()
@@ -131,7 +129,7 @@ func (rq *RetryQueue) LoadDataFromDB(routerID int64, availableOutputs []output.O
 	deleteQuery := `DELETE from retry_data where id = ?`
 	res, err := rq.db.Query(searchQuery, routerID)
 	if err != nil {
-		rq.logger.Error("coundnt load state data from db", "error", err)
+		slog.Error("coundnt load state data from db", "error", err)
 		return err
 	}
 
@@ -163,7 +161,7 @@ func (rq *RetryQueue) LoadDataFromDB(routerID int64, availableOutputs []output.O
 			continue
 		}
 
-		rq.logger.Debug("loaded retry data from db", "data", queueData)
+		slog.Debug("loaded retry data from db", "data", queueData)
 
 		rq.queue = append(rq.queue, queueData)
 		dataIdsToDelete = append(dataIdsToDelete, id)
@@ -174,7 +172,7 @@ func (rq *RetryQueue) LoadDataFromDB(routerID int64, availableOutputs []output.O
 	for _, id := range dataIdsToDelete {
 		_, err := rq.db.Exec(deleteQuery, id)
 		if err != nil {
-			rq.logger.Error("coundnt delete dataId from retry_data table", "error", err, "id", id)
+			slog.Error("coundnt delete dataId from retry_data table", "error", err, "id", id)
 		}
 	}
 

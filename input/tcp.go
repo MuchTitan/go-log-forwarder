@@ -26,7 +26,6 @@ type InTCP struct {
 	sendCh            chan util.Event
 	cancel            context.CancelFunc
 	wg                *sync.WaitGroup
-	logger            *slog.Logger
 	connCountMutex    *sync.RWMutex
 	activeConns       *sync.Map
 	ListenAddr        string `mapstructure:"ListenAddr"`
@@ -38,7 +37,7 @@ type InTCP struct {
 	connCount         int32
 }
 
-func ParseTCP(input map[string]interface{}, logger *slog.Logger) (InTCP, error) {
+func ParseTCP(input map[string]interface{}) (InTCP, error) {
 	tcpObject := InTCP{}
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		DecodeHook: mapstructure.TextUnmarshallerHookFunc(),
@@ -61,7 +60,6 @@ func ParseTCP(input map[string]interface{}, logger *slog.Logger) (InTCP, error) 
 	tcpObject.ConnectionTimeout = cmp.Or(tcpObject.ConnectionTimeout, defaultTCPTimeout)
 	tcpObject.addr = fmt.Sprintf("%s:%d", tcpObject.ListenAddr, tcpObject.Port)
 	tcpObject.ctx, tcpObject.cancel = context.WithCancel(context.Background())
-	tcpObject.logger = logger
 	tcpObject.sendCh = make(chan util.Event, 500) // Buffered channel to prevent blocking
 	tcpObject.wg = &sync.WaitGroup{}
 	tcpObject.connCountMutex = &sync.RWMutex{}
@@ -102,12 +100,12 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 
 	// Set initial deadline
 	if err := conn.SetDeadline(time.Now().Add(iTcp.ConnectionTimeout * time.Minute)); err != nil {
-		iTcp.logger.Error("Failed to set connection deadline", "error", err, "remote_addr", remoteAddr)
+		slog.Error("Failed to set connection deadline", "error", err, "remote_addr", remoteAddr)
 		return
 	}
 
 	buffer := make([]byte, iTcp.BufferSize)
-	iTcp.logger.Info("New connection established", "remote_addr", remoteAddr)
+	slog.Info("New connection established", "remote_addr", remoteAddr)
 
 	readCtx, cancel := context.WithCancel(iTcp.ctx)
 	defer cancel()
@@ -116,7 +114,7 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 	go func() {
 		<-readCtx.Done()
 		if err := connState.Close(); err != nil {
-			iTcp.logger.Debug("Error closing connection during shutdown",
+			slog.Debug("Error closing connection during shutdown",
 				"error", err,
 				"remote_addr", remoteAddr)
 		}
@@ -129,13 +127,13 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 
 		select {
 		case <-readCtx.Done():
-			iTcp.logger.Info("Connection closed due to shutdown", "remote_addr", remoteAddr)
+			slog.Info("Connection closed due to shutdown", "remote_addr", remoteAddr)
 			return
 		default:
 			// Set a shorter read deadline to allow for quicker shutdown
 			if err := conn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
 				if !connState.IsClosed() {
-					iTcp.logger.Error("Failed to reset deadline",
+					slog.Error("Failed to reset deadline",
 						"error", err,
 						"remote_addr", remoteAddr)
 				}
@@ -145,7 +143,7 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 			n, err := conn.Read(buffer)
 			if err != nil {
 				if err == io.EOF {
-					iTcp.logger.Info("Client closed connection", "remote_addr", remoteAddr)
+					slog.Info("Client closed connection", "remote_addr", remoteAddr)
 					return
 				}
 
@@ -158,7 +156,7 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 
 				// Only log if connection wasn't deliberately closed
 				if !connState.IsClosed() && iTcp.ctx.Err() != nil {
-					iTcp.logger.Error("Error reading from connection",
+					slog.Error("Error reading from connection",
 						"error", err,
 						"remote_addr", remoteAddr)
 				}
@@ -168,7 +166,7 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 			// Reset the full timeout after successful read
 			if err := conn.SetReadDeadline(time.Now().Add(iTcp.ConnectionTimeout * time.Minute)); err != nil {
 				if !connState.IsClosed() {
-					iTcp.logger.Error("Failed to reset timeout deadline",
+					slog.Error("Failed to reset timeout deadline",
 						"error", err,
 						"remote_addr", remoteAddr)
 				}
@@ -189,7 +187,7 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 					Metadata:    metadata,
 				}:
 				default:
-					iTcp.logger.Warn("Event channel full, dropping message", "remote_addr", remoteAddr)
+					slog.Warn("Event channel full, dropping message", "remote_addr", remoteAddr)
 				}
 			}
 		}
@@ -208,11 +206,11 @@ func (iTcp InTCP) Start() {
 		var err error
 		iTcp.listener, err = net.Listen("tcp", iTcp.addr)
 		if err != nil {
-			iTcp.logger.Error("Couldn't start tcp input", "error", err)
+			slog.Error("Couldn't start tcp input", "error", err)
 			return
 		}
 
-		iTcp.logger.Info("Starting TCP input",
+		slog.Info("Starting TCP input",
 			"addr", iTcp.addr,
 			"buffer_size", iTcp.BufferSize,
 			"timeout", iTcp.ConnectionTimeout,
@@ -227,13 +225,13 @@ func (iTcp InTCP) Start() {
 				conn, err := iTcp.listener.Accept()
 				if err != nil {
 					if iTcp.ctx.Err() != nil {
-						iTcp.logger.Warn("Error accepting TCP input connection", "error", err)
+						slog.Warn("Error accepting TCP input connection", "error", err)
 					}
 					continue
 				}
 
 				if !iTcp.incrementConnCount() {
-					iTcp.logger.Warn("Maximum connection limit reached, rejecting connection",
+					slog.Warn("Maximum connection limit reached, rejecting connection",
 						"remote_addr", conn.RemoteAddr().String())
 					conn.Close()
 					continue
@@ -259,7 +257,7 @@ func (iTcp InTCP) Stop() {
 
 	if iTcp.listener != nil {
 		if err := iTcp.listener.Close(); err != nil {
-			iTcp.logger.Error("Error closing listener", "error", err)
+			slog.Error("Error closing listener", "error", err)
 		}
 	}
 

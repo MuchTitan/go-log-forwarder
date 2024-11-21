@@ -3,6 +3,7 @@ package output
 import (
 	"bytes"
 	"cmp"
+	"compress/gzip"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -15,18 +16,18 @@ import (
 )
 
 type Splunk struct {
-	logger          *slog.Logger
-	httpClient      *http.Client
-	EventFields     map[string]interface{} `mapstructure:"EventFields"`
-	SplunkToken     string                 `mapstructure:"Token"`
-	Host            string                 `mapstructure:"Host"`
-	EventHost       string                 `mapstructure:"EventHost"`
-	EventSourceType string                 `mapstructure:"EventSourceType"`
-	EventIndex      string                 `mapstructure:"EventIndex"`
-	OutputMatch     string                 `mapstructure:"Match"`
-	Port            int                    `mapstructure:"Port"`
-	VerifyTLS       bool                   `mapstructure:"VerifyTLS"`
-	SendRaw         bool                   `mapstructure:"SendRaw"`
+	httpClient        *http.Client
+	EventFields       map[string]interface{} `mapstructure:"EventFields"`
+	SplunkToken       string                 `mapstructure:"Token"`
+	Host              string                 `mapstructure:"Host"`
+	EventHost         string                 `mapstructure:"EventHost"`
+	EventSourceType   string                 `mapstructure:"EventSourceType"`
+	EventIndex        string                 `mapstructure:"EventIndex"`
+	OutputMatch       string                 `mapstructure:"Match"`
+	CompressingMethod string                 `mapstructure:"Compress"`
+	Port              int                    `mapstructure:"Port"`
+	VerifyTLS         bool                   `mapstructure:"VerifyTLS"`
+	SendRaw           bool                   `mapstructure:"SendRaw"`
 }
 
 type SplunkPostData struct {
@@ -38,7 +39,7 @@ type SplunkPostData struct {
 	Time       int64       `json:"time"`
 }
 
-func ParseSplunk(input interface{}, logger *slog.Logger) (Splunk, error) {
+func ParseSplunk(input interface{}) (Splunk, error) {
 	splunk := Splunk{}
 	err := mapstructure.Decode(input, &splunk)
 	if err != nil {
@@ -57,6 +58,7 @@ func ParseSplunk(input interface{}, logger *slog.Logger) (Splunk, error) {
 	// Setup Defaults
 	splunk.EventHost = cmp.Or(splunk.EventHost, util.GetHostname())
 	splunk.EventSourceType = cmp.Or(splunk.EventSourceType, "JSON")
+	splunk.CompressingMethod = cmp.Or(splunk.CompressingMethod, "gzip")
 
 	// Setup TLS
 	tr := &http.Transport{
@@ -71,7 +73,6 @@ func ParseSplunk(input interface{}, logger *slog.Logger) (Splunk, error) {
 	}
 
 	splunk.httpClient = client
-	splunk.logger = logger
 	return splunk, nil
 }
 
@@ -86,7 +87,7 @@ func (s Splunk) Write(data util.Event) error {
 	var eventData interface{}
 	if !s.SendRaw {
 		if data.ParsedData == nil {
-			s.logger.Warn("Trying to send to splunk Parsed Data without a defiend Parser. Sending raw data.")
+			slog.Warn("Trying to send to splunk Parsed Data without a defiend Parser. Sending raw data.")
 			return nil
 		}
 		eventData = util.MergeMaps(data.ParsedData, s.EventFields)
@@ -105,15 +106,35 @@ func (s Splunk) Write(data util.Event) error {
 
 	postDataRaw, err := json.Marshal(postData)
 	if err != nil {
-		s.logger.Debug("Coundnt parse data in to JSON format", "error", err)
+		slog.Debug("Coundnt parse data in to JSON format", "error", err)
 		return err
 	}
 
-	err = s.SendDataToSplunk(postDataRaw)
-	if err != nil {
-		s.logger.Debug("Coundnt send to splunk", "error", err)
-		return err
+	if s.CompressingMethod == "gzip" {
+		var gzippedData bytes.Buffer
+		gzipWriter := gzip.NewWriter(&gzippedData)
+		_, err := gzipWriter.Write(postDataRaw)
+		if err != nil {
+			slog.Debug("Failed to gzip data", "error", err)
+			return err
+		}
+		// Ensure all data is written and the writer is closed
+		gzipWriter.Close()
+
+		// Send the gzipped data
+		err = s.SendDataToSplunk(gzippedData.Bytes())
+		if err != nil {
+			slog.Debug("Coundnt send gzipped data to splunk", "error", err)
+			return err
+		}
+	} else {
+		err = s.SendDataToSplunk(postDataRaw)
+		if err != nil {
+			slog.Debug("Coundnt send to splunk", "error", err)
+			return err
+		}
 	}
+
 	return nil
 }
 
@@ -130,6 +151,9 @@ func (s *Splunk) SendDataToSplunk(data []byte) error {
 	}
 
 	req.Header.Add("Content-Type", "application/json")
+	if s.CompressingMethod == "gzip" {
+		req.Header.Add("Content-Encoding", "gzip")
+	}
 	req.Header.Add("Authorization", fmt.Sprintf("Splunk %s", s.SplunkToken))
 
 	resp, err := s.httpClient.Do(req)

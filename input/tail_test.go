@@ -49,6 +49,7 @@ func TestTailE2E(t *testing.T) {
 	defer cleanup()
 
 	logger := slog.Default()
+	slog.SetDefault(logger)
 
 	t.Run("Basic file reading and watching", func(t *testing.T) {
 		testFile := createTestFile(t, tmpDir, "test.log", []string{"line1", "line2"})
@@ -58,7 +59,7 @@ func TestTailE2E(t *testing.T) {
 			"Tag":  "test-tag",
 		}
 
-		tail, err := input.ParseTail(config, logger)
+		tail, err := input.ParseTail(config)
 		require.NoError(t, err, "Failed to parse tail configuration")
 		defer tail.Stop()
 
@@ -95,14 +96,13 @@ func TestTailE2E(t *testing.T) {
 		tmpDir, cleanup := setupTestEnvironment(t)
 		defer cleanup()
 
-		logger := slog.Default()
 		config := map[string]interface{}{
 			"Glob": filepath.Join(tmpDir, "dynamic*.log"),
 			"Tag":  "dynamic-tag",
 		}
 
 		// Initialize tail and start watching
-		tail, err := input.ParseTail(config, logger)
+		tail, err := input.ParseTail(config)
 		require.NoError(t, err)
 
 		tail.Start()
@@ -191,7 +191,7 @@ func TestTailE2E(t *testing.T) {
 			"Tag":  "multi-tag",
 		}
 
-		tail, err := input.ParseTail(config, logger)
+		tail, err := input.ParseTail(config)
 		require.NoError(t, err, "Failed to parse tail configuration")
 		defer tail.Stop()
 
@@ -216,15 +216,13 @@ func TestTailErrors(t *testing.T) {
 	tmpDir, cleanup := setupTestEnvironment(t)
 	defer cleanup()
 
-	logger := slog.Default()
-
 	t.Run("Invalid glob pattern", func(t *testing.T) {
 		config := map[string]interface{}{
 			"Glob": filepath.Join(tmpDir, "[[invalid-glob"),
 			"Tag":  "error-tag",
 		}
 
-		_, err := input.ParseTail(config, logger)
+		_, err := input.ParseTail(config)
 		assert.Error(t, err, "Expected error for invalid glob pattern")
 	})
 
@@ -233,7 +231,7 @@ func TestTailErrors(t *testing.T) {
 			"Tag": "error-tag",
 		}
 
-		_, err := input.ParseTail(config, logger)
+		_, err := input.ParseTail(config)
 		assert.Error(t, err, "Expected error for missing glob pattern")
 	})
 
@@ -247,7 +245,7 @@ func TestTailErrors(t *testing.T) {
 			"Tag":  "error-tag",
 		}
 
-		tail, err := input.ParseTail(config, logger)
+		tail, err := input.ParseTail(config)
 		require.NoError(t, err, "Failed to parse tail configuration")
 		defer tail.Stop()
 

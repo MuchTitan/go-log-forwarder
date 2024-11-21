@@ -19,7 +19,6 @@ import (
 const DefaultHttpBufferSize int64 = 5 << 20 // 5MB
 
 type InHTTP struct {
-	logger     *slog.Logger
 	sendCh     chan util.Event
 	server     *http.Server
 	wg         *sync.WaitGroup
@@ -31,7 +30,7 @@ type InHTTP struct {
 	VerifyTLS  bool   `mapstructure:"VerifyTLS"`
 }
 
-func ParseHttp(input map[string]interface{}, logger *slog.Logger) (InHTTP, error) {
+func ParseHttp(input map[string]interface{}) (InHTTP, error) {
 	httpObject := InHTTP{}
 	err := mapstructure.Decode(input, &httpObject)
 	if err != nil {
@@ -41,8 +40,6 @@ func ParseHttp(input map[string]interface{}, logger *slog.Logger) (InHTTP, error
 	httpObject.ListenAddr = cmp.Or(httpObject.ListenAddr, "0.0.0.0")
 	httpObject.Port = cmp.Or(httpObject.Port, 8080)
 	httpObject.BufferSize = cmp.Or(httpObject.BufferSize, DefaultHttpBufferSize)
-
-	httpObject.logger = logger
 
 	httpObject.addr = fmt.Sprintf("%s:%d", httpObject.ListenAddr, httpObject.Port)
 	httpObject.server = &http.Server{
@@ -122,9 +119,9 @@ func (h InHTTP) handleReq(w http.ResponseWriter, r *http.Request) {
 func (h InHTTP) Start() {
 	http.HandleFunc("/", h.handleReq)
 	go func() {
-		h.logger.Info("Starting http input", "Addr", h.addr)
+		slog.Info("Starting http input", "Addr", h.addr)
 		if err := h.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			h.logger.Error("An error occured during the http input", "Addr", h.addr, "error", err)
+			slog.Error("An error occured during the http input", "Addr", h.addr, "error", err)
 		}
 	}()
 }
@@ -137,7 +134,7 @@ func (h InHTTP) Stop() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer shutdownCancel()
 	if err := h.server.Shutdown(shutdownCtx); err != nil {
-		h.logger.Error("Error during http input server shutdown", "error", err)
+		slog.Error("Error during http input server shutdown", "error", err)
 	}
 	h.wg.Wait()
 	close(h.sendCh)

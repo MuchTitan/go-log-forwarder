@@ -19,7 +19,6 @@ type Router struct {
 	ctx        context.Context
 	wg         *sync.WaitGroup
 	cancel     context.CancelFunc
-	logger     *slog.Logger
 	retryQueue *RetryQueue
 	db         *sql.DB
 	parsers    []parser.Parser
@@ -28,15 +27,14 @@ type Router struct {
 	dbID       int64
 }
 
-func NewRouter(logger *slog.Logger) *Router {
+func NewRouter() *Router {
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 	return &Router{
 		wg:         wg,
 		ctx:        ctx,
 		cancel:     cancel,
-		logger:     logger,
-		retryQueue: NewRetryQueue(logger),
+		retryQueue: NewRetryQueue(),
 		db:         database.GetDB(),
 	}
 }
@@ -55,7 +53,7 @@ func (r *Router) AddOutput(output output.Output) {
 
 func (r *Router) SetInput(input input.Input) {
 	if r.input != nil {
-		r.logger.Warn("More than one Input is for an router defiend")
+		slog.Warn("More than one Input is for an router defiend")
 		return
 	}
 	r.input = input
@@ -74,16 +72,7 @@ func (r *Router) ApplyParsers(data *util.Event) {
 		}
 	}
 	if err != nil {
-		if r.logger.Enabled(context.Background(), slog.LevelDebug) {
-			r.logger.Warn("Coundnt parse data with any defiend Parser",
-				"InputTag", data.InputTag,
-				"error", err,
-				"rawData", string(data.RawData),
-				"filepath", data.Metadata["filepath"],
-			)
-		} else {
-			r.logger.Warn("Coundnt parse data with any defiend Parser", "InputTag", data.InputTag)
-		}
+		slog.Warn("Coundnt parse data with any defiend Parser", "InputTag", data.InputTag)
 	}
 }
 
@@ -103,7 +92,7 @@ func (r *Router) StartHandlerLoop() {
 		r.ApplyParsers(&data)
 
 		if passed := r.ApplyFilters(&data); !passed {
-			r.logger.Debug("skip sending log data based on filter", "InputTag", data.InputTag)
+			slog.Debug("skip sending log data based on filter", "InputTag", data.InputTag)
 			continue
 		}
 
@@ -111,7 +100,7 @@ func (r *Router) StartHandlerLoop() {
 		for _, output := range r.outputs {
 			err := output.Write(data)
 			if err != nil {
-				r.logger.Debug("Error while sending", "error", err, "output", util.GetNameOfInterface(output))
+				slog.Debug("Error while sending", "error", err, "output", util.GetNameOfInterface(output))
 				statusOutputs = append(statusOutputs, output)
 			}
 
@@ -126,21 +115,21 @@ func (r *Router) StartHandlerLoop() {
 
 func (r *Router) Start() {
 	if len(r.outputs) < 1 {
-		r.logger.Error("Coundnt start router no outputs are defiend")
+		slog.Error("Coundnt start router no outputs are defiend")
 		return
 	}
 	err := r.RouterGetIdFromDB()
 	if err != nil {
 		err := r.RouterSaveStateToDB()
 		if err != nil {
-			r.logger.Error("coundnt save router to db", "error", err)
+			slog.Error("coundnt save router to db", "error", err)
 			return
 		}
 	}
 
 	err = r.retryQueue.LoadDataFromDB(r.dbID, r.outputs)
 	if err != nil {
-		r.logger.Error("coundnt save state from retryQueue", "error", err)
+		slog.Error("coundnt save state from retryQueue", "error", err)
 	}
 
 	r.wg.Add(1)
@@ -177,7 +166,7 @@ func (r *Router) StateHandlerLoop() {
 func (r *Router) SaveRouterState() {
 	err := r.retryQueue.SaveStateToDB(r.dbID)
 	if err != nil {
-		r.logger.Error("coundnt save retryQueue state", "error", err)
+		slog.Error("coundnt save retryQueue state", "error", err)
 	}
 }
 

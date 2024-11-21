@@ -24,7 +24,6 @@ import (
 // their reading state persistently.
 type Tail struct {
 	ctx             context.Context
-	logger          *slog.Logger
 	files           *sync.Map
 	timers          *sync.Map
 	fileEventCH     chan string
@@ -54,9 +53,8 @@ type TailFileState struct {
 // ParseTail creates a new Tail instance from a configuration map.
 // It initializes the necessary channels, maps, and file watcher.
 // Returns an error if the configuration is invalid or watcher creation fails.
-func ParseTail(input map[string]interface{}, logger *slog.Logger) (Tail, error) {
+func ParseTail(input map[string]interface{}) (Tail, error) {
 	tail := Tail{
-		logger:          logger,
 		files:           &sync.Map{},
 		timers:          &sync.Map{},
 		sendChan:        make(chan util.Event),
@@ -99,7 +97,7 @@ func (t *Tail) persistStates() {
 		// Begin transaction
 		tx, err := t.db.Begin()
 		if err != nil {
-			t.logger.Error("Failed to begin transaction", "error", err)
+			slog.Error("Failed to begin transaction", "error", err)
 		}
 
 		stmt, err := tx.Prepare(`
@@ -107,7 +105,7 @@ func (t *Tail) persistStates() {
 				VALUES (?, ?, ?, ?, ?)
 			`)
 		if err != nil {
-			t.logger.Error("Failed to prepare statement", "error", err)
+			slog.Error("Failed to prepare statement", "error", err)
 			tx.Rollback()
 		}
 
@@ -120,7 +118,7 @@ func (t *Tail) persistStates() {
 				update.state.iNodeNumber,
 			)
 			if err != nil {
-				t.logger.Error("Failed to execute statement", "error", err)
+				slog.Error("Failed to execute statement", "error", err)
 				continue
 			}
 		}
@@ -128,7 +126,7 @@ func (t *Tail) persistStates() {
 		stmt.Close()
 		err = tx.Commit()
 		if err != nil {
-			t.logger.Error("Failed to commit transaction", "error", err)
+			slog.Error("Failed to commit transaction", "error", err)
 			tx.Rollback()
 		}
 
@@ -164,7 +162,7 @@ func (t *Tail) getTailFileStateFromDB(path string, inodeNum uint64) (TailFileSta
 		return TailFileState{}, false
 	}
 	if err != nil {
-		t.logger.Error("Failed to query file state", "error", err)
+		slog.Error("Failed to query file state", "error", err)
 		return TailFileState{}, false
 	}
 
@@ -177,7 +175,7 @@ func (t *Tail) updateFileState(path string, state TailFileState) {
 	select {
 	case t.stateUpdateChan <- stateUpdate{path: path, state: state}:
 	default:
-		t.logger.Warn("State update channel full, skipping persistence")
+		slog.Warn("State update channel full, skipping persistence")
 	}
 }
 
@@ -185,7 +183,7 @@ func (t *Tail) sendFileEvent(path string) {
 	select {
 	case t.fileEventCH <- path:
 	default:
-		t.logger.Warn("file event overflow")
+		slog.Warn("file event overflow")
 	}
 }
 
@@ -232,7 +230,7 @@ func (t *Tail) readFile(path string, state TailFileState) (TailFileState, error)
 				state.seekOffset = currOffset
 				return state, nil
 			}
-			t.logger.Error("cant read from file", "filepath", path)
+			slog.Error("cant read from file", "filepath", path)
 		}
 
 		state.lastSendLine++
@@ -312,7 +310,7 @@ func (t *Tail) fileStatLoop() {
 		case <-ticker.C:
 			matches, err := filepath.Glob(t.Glob)
 			if err != nil {
-				t.logger.Error("coundnt get files for glob", "error", err)
+				slog.Error("coundnt get files for glob", "error", err)
 				continue
 			}
 			for _, path := range matches {
@@ -341,7 +339,7 @@ func (t *Tail) HandleFileEvent(path string) {
 
 	currINodeNum, err := util.GetInodeNumber(path)
 	if err != nil {
-		t.logger.Error("Cant get INodeNum", "error", err, "path", path)
+		slog.Error("Cant get INodeNum", "error", err, "path", path)
 		return
 	}
 	if savedState, exists := t.getTailFileStateFromDB(path, currINodeNum); exists {
@@ -350,7 +348,7 @@ func (t *Tail) HandleFileEvent(path string) {
 			t.deleteTimer(path)
 			newState, err := t.readFile(path, savedState)
 			if err != nil {
-				t.logger.Error("Couldn't read from file with saved state", "error", err)
+				slog.Error("Couldn't read from file with saved state", "error", err)
 				return
 			}
 			t.updateFileState(path, newState)
@@ -362,7 +360,7 @@ func (t *Tail) HandleFileEvent(path string) {
 	newState := newFileTailState(path)
 	newState, err = t.readFile(path, newState)
 	if err != nil {
-		t.logger.Error("Couldn't read from file", "error", err)
+		slog.Error("Couldn't read from file", "error", err)
 	}
 	t.updateFileState(path, newState)
 }
@@ -408,7 +406,7 @@ func (t *Tail) HandleFileEventWithDebounce(path string) {
 // - Monitor goroutine count
 // - Process initial files
 func (t Tail) Start() {
-	t.logger.Info("Starting file tail", "glob", t.Glob)
+	slog.Info("Starting file tail", "glob", t.Glob)
 	t.globalWg.Add(2)
 	go func() {
 		go t.persistStates()
@@ -434,7 +432,7 @@ func (t Tail) Read() <-chan util.Event {
 // Stop gracefully shuts down the tail operation.
 // It cancels the context, closes the watcher, and waits for all goroutines to finish.
 func (t Tail) Stop() {
-	t.logger.Info("Stopping file tail", "glob", t.Glob)
+	slog.Info("Stopping file tail", "glob", t.Glob)
 	if t.ctx != nil {
 		t.cancel()
 	}

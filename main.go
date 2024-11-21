@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log-forwarder-client/config"
 	"log-forwarder-client/database"
 	"log-forwarder-client/filter"
@@ -9,9 +10,12 @@ import (
 	"log-forwarder-client/parser"
 	"log-forwarder-client/router"
 	"log-forwarder-client/util"
+	"log/slog"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
+	"time"
 )
 
 var (
@@ -19,9 +23,18 @@ var (
 	runningRouter []*router.Router
 )
 
+func printGoroutines() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		fmt.Printf("Running goroutines: %d\n", runtime.NumGoroutine())
+	}
+}
+
 func StartRouters() {
 	for _, in := range input.AvailableInputs {
-		rt := router.NewRouter(cfg.Logger)
+		rt := router.NewRouter()
 		rt.SetInput(in)
 		for _, parser := range parser.AvailableParser {
 			if util.TagMatch(in.GetTag(), parser.GetMatch()) {
@@ -55,8 +68,9 @@ func init() {
 }
 
 func main() {
+	go printGoroutines()
 	defer database.CloseDB()
-	cfg.Logger.Info("Starting Log forwarder")
+	slog.Info("Starting Log forwarder")
 
 	// Start the Routers
 	StartRouters()
@@ -65,15 +79,15 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
-	cfg.Logger.Info("Log forwarder shutdown started")
+	slog.Info("Log forwarder shutdown started")
 
 	// Stops the running Routers
 	StopRouters()
 
 	err := database.CleanUpRetryData()
 	if err != nil {
-		cfg.Logger.Error("coudnt cleanup retry_data table", "error", err)
+		slog.Error("coudnt cleanup retry_data table", "error", err)
 	}
 
-	cfg.Logger.Info("Log forwarder shutdown complete")
+	slog.Info("Log forwarder shutdown complete")
 }

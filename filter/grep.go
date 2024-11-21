@@ -4,21 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"log-forwarder-client/util"
-	"log/slog"
 	"regexp"
 
 	"github.com/mitchellh/mapstructure"
 )
 
 type Grep struct {
-	logger      *slog.Logger
 	FilterMatch string   `mapstructure:"Match"`
 	Op          string   `mapstructure:"Op"`      // Available Operation are "and" and "or"
 	Regex       []string `mapstructure:"Regex"`   // Postitive Match sends the log
 	Exclude     []string `mapstructure:"Exclude"` // Postitive Match doesent send the log
 }
 
-func ParseGrep(input map[string]interface{}, logger *slog.Logger) (Grep, error) {
+func ParseGrep(input map[string]interface{}) (Grep, error) {
 	grep := Grep{}
 	err := mapstructure.Decode(input, &grep)
 	if err != nil {
@@ -33,7 +31,6 @@ func ParseGrep(input map[string]interface{}, logger *slog.Logger) (Grep, error) 
 		return grep, fmt.Errorf("Unsupported Logic Operator '%s' in Grep Filter", grep.Op)
 	}
 
-	grep.logger = logger
 	return grep, nil
 }
 

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log-forwarder-client/util"
-	"log/slog"
 	"os"
 	"sync"
 
@@ -34,12 +33,11 @@ func (oc *OutputToCounts) IncrementCounter(output string) uint64 {
 }
 
 type Counter struct {
-	logger      *slog.Logger
 	OutToCounts *OutputToCounts
 	OutputMatch string `mapstructure:"Match"`
 }
 
-func ParseCounter(input map[string]interface{}, logger *slog.Logger) (Counter, error) {
+func ParseCounter(input map[string]interface{}) (Counter, error) {
 	counterObject := Counter{
 		OutToCounts: NewOutputToCounts(),
 	}

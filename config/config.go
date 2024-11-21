@@ -26,7 +26,6 @@ type RawConfig struct {
 }
 
 type SystemConfig struct {
-	Logger   *slog.Logger
 	DBFile   string `mapstructure:"dbfile"`
 	LogLevel string `mapstructure:"logLevel"`
 	LogFile  string `mapstructure:"logfile"`
@@ -50,16 +49,12 @@ func (c *SystemConfig) GetLogLevel() int {
 	}
 }
 
-func SetupLogger(w io.Writer, level int) *slog.Logger {
+func SetupLogger(w io.Writer, level int) {
 	opts := &slog.HandlerOptions{
 		Level: slog.Level(level),
 	}
 	logger := slog.New(slog.NewJSONHandler(w, opts))
-	return logger
-}
-
-func GetLogger() *slog.Logger {
-	return cfg.Logger
+	slog.SetDefault(logger)
 }
 
 func LoadSystemConfig(data map[string]interface{}) (*SystemConfig, error) {
@@ -80,7 +75,7 @@ func LoadSystemConfig(data map[string]interface{}) (*SystemConfig, error) {
 
 	}
 	var logOut LogOut = writer
-	sysConfig.Logger = SetupLogger(logOut, sysConfig.GetLogLevel())
+	SetupLogger(logOut, sysConfig.GetLogLevel())
 
 	return sysConfig, nil
 }
@@ -107,7 +102,7 @@ func LoadConfig(filepath string) *SystemConfig {
 
 	err = database.OpenDB(cfg.DBFile)
 	if err != nil {
-		cfg.Logger.Error("Failed to open database", "error", err)
+		slog.Error("Failed to open database", "error", err)
 		os.Exit(1)
 	}
 
@@ -122,38 +117,38 @@ func DecodeOutputs(outputsList []map[string]interface{}) {
 	for _, outputCfg := range outputsList {
 		switch outputCfg["Name"] {
 		case "splunk":
-			splunk, err := output.ParseSplunk(outputCfg, cfg.Logger)
+			splunk, err := output.ParseSplunk(outputCfg)
 			if err != nil {
 				panic(err)
 			}
-			cfg.Logger.Debug("Loaded this output splunk config", "Config", splunk)
+			slog.Debug("Loaded this output splunk config", "Config", splunk)
 			output.AvailableOutputs = append(output.AvailableOutputs, splunk)
 
 		case "stdout":
-			stdout, err := output.ParseStdout(outputCfg, cfg.Logger)
+			stdout, err := output.ParseStdout(outputCfg)
 			if err != nil {
 				panic(err)
 			}
-			cfg.Logger.Debug("Loaded this output stdout config", "Config", stdout)
+			slog.Debug("Loaded this output stdout config", "Config", stdout)
 			output.AvailableOutputs = append(output.AvailableOutputs, stdout)
 
 		case "counter":
-			counter, err := output.ParseCounter(outputCfg, cfg.Logger)
+			counter, err := output.ParseCounter(outputCfg)
 			if err != nil {
 				panic(err)
 			}
-			cfg.Logger.Debug("Loaded this output counter config", "Config", counter)
+			slog.Debug("Loaded this output counter config", "Config", counter)
 			output.AvailableOutputs = append(output.AvailableOutputs, counter)
 		case "gelf":
-			gelf, err := output.ParseGELF(outputCfg, cfg.Logger)
+			gelf, err := output.ParseGELF(outputCfg)
 			if err != nil {
 				panic(err)
 			}
-			cfg.Logger.Debug("Loaded this output gelf config", "Config", gelf)
+			slog.Debug("Loaded this output gelf config", "Config", gelf)
 			output.AvailableOutputs = append(output.AvailableOutputs, gelf)
 
 		default:
-			cfg.Logger.Warn("Not a implemented Output", "Name", outputCfg["Name"])
+			slog.Warn("Not a implemented Output", "Name", outputCfg["Name"])
 		}
 	}
 }
@@ -162,39 +157,39 @@ func DecodeInputs(inputsList []map[string]interface{}) {
 	for _, inputCfg := range inputsList {
 		switch inputCfg["Name"] {
 		case "tail":
-			tail, err := input.ParseTail(inputCfg, cfg.Logger)
+			tail, err := input.ParseTail(inputCfg)
 			if err != nil {
 				panic(err)
 			}
-			cfg.Logger.Debug("Loaded this input tail config", "Config", tail)
+			slog.Debug("Loaded this input tail config", "Config", tail)
 			input.AvailableInputs = append(input.AvailableInputs, tail)
 
 		case "http":
-			http, err := input.ParseHttp(inputCfg, cfg.Logger)
+			http, err := input.ParseHttp(inputCfg)
 			if err != nil {
 				panic(err)
 			}
-			cfg.Logger.Debug("Loaded this input http config", "Config", http)
+			slog.Debug("Loaded this input http config", "Config", http)
 			input.AvailableInputs = append(input.AvailableInputs, http)
 
 		case "tcp":
-			tcp, err := input.ParseTCP(inputCfg, cfg.Logger)
+			tcp, err := input.ParseTCP(inputCfg)
 			if err != nil {
 				panic(err)
 			}
-			cfg.Logger.Debug("Loaded this input tcp config", "Config", tcp)
+			slog.Debug("Loaded this input tcp config", "Config", tcp)
 			input.AvailableInputs = append(input.AvailableInputs, tcp)
 
 		case "udp":
-			udp, err := input.ParseUDP(inputCfg, cfg.Logger)
+			udp, err := input.ParseUDP(inputCfg)
 			if err != nil {
 				panic(err)
 			}
-			cfg.Logger.Debug("Loaded this input udp config", "Config", udp)
+			slog.Debug("Loaded this input udp config", "Config", udp)
 			input.AvailableInputs = append(input.AvailableInputs, udp)
 
 		default:
-			cfg.Logger.Warn("Not a implemented Input", "Name", inputCfg["Name"])
+			slog.Warn("Not a implemented Input", "Name", inputCfg["Name"])
 		}
 	}
 }
@@ -203,21 +198,21 @@ func DecodeParser(parserList []map[string]interface{}) {
 	for _, parserCfg := range parserList {
 		switch parserCfg["Name"] {
 		case "json":
-			jsonObject, err := parser.ParseJson(parserCfg, cfg.Logger)
+			jsonObject, err := parser.ParseJson(parserCfg)
 			if err != nil {
 				panic(err)
 			}
-			cfg.Logger.Debug("Loaded this parser json config", "Config", jsonObject)
+			slog.Debug("Loaded this parser json config", "Config", jsonObject)
 			parser.AvailableParser = append(parser.AvailableParser, jsonObject)
 		case "regex":
-			regex, err := parser.ParseRegex(parserCfg, cfg.Logger)
+			regex, err := parser.ParseRegex(parserCfg)
 			if err != nil {
 				panic(err)
 			}
-			cfg.Logger.Debug("Loaded this parser regex config", "Config", regex)
+			slog.Debug("Loaded this parser regex config", "Config", regex)
 			parser.AvailableParser = append(parser.AvailableParser, regex)
 		default:
-			cfg.Logger.Warn("Not a implemented Parser", "Name", parserCfg["Name"])
+			slog.Warn("Not a implemented Parser", "Name", parserCfg["Name"])
 		}
 	}
 }
@@ -226,14 +221,14 @@ func DecodeFilter(filterList []map[string]interface{}) {
 	for _, filterCfg := range filterList {
 		switch filterCfg["Name"] {
 		case "grep":
-			grep, err := filter.ParseGrep(filterCfg, cfg.Logger)
+			grep, err := filter.ParseGrep(filterCfg)
 			if err != nil {
 				panic(err)
 			}
-			cfg.Logger.Debug("Loaded this filter grep config", "Config", grep)
+			slog.Debug("Loaded this filter grep config", "Config", grep)
 			filter.AvailableFilters = append(filter.AvailableFilters, grep)
 		default:
-			cfg.Logger.Warn("Not a implemented Filter", "Name", filterCfg["Name"])
+			slog.Warn("Not a implemented Filter", "Name", filterCfg["Name"])
 		}
 	}
 }

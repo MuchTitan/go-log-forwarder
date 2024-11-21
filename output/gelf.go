@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log-forwarder-client/util"
-	"log/slog"
 
 	"github.com/mitchellh/mapstructure"
 	"gopkg.in/Graylog2/go-gelf.v2/gelf"
@@ -44,7 +43,7 @@ func (g *GELF) SetupWriter() error {
 	return nil
 }
 
-func ParseGELF(input map[string]interface{}, logger *slog.Logger) (GELF, error) {
+func ParseGELF(input map[string]interface{}) (GELF, error) {
 	gelf := GELF{}
 	err := mapstructure.Decode(input, &gelf)
 	if err != nil {

@@ -4,19 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"log-forwarder-client/util"
-	"log/slog"
 	"os"
 
 	"github.com/mitchellh/mapstructure"
 )
 
 type Stdout struct {
-	logger      *slog.Logger
 	OutputMatch string `mapstructure:"Match"`
 	SendRaw     bool   `mapstructure:"SendRaw"`
 }
 
-func ParseStdout(input map[string]interface{}, logger *slog.Logger) (Stdout, error) {
+func ParseStdout(input map[string]interface{}) (Stdout, error) {
 	stdout := Stdout{}
 	err := mapstructure.Decode(input, &stdout)
 	if err != nil {

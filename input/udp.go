@@ -21,7 +21,6 @@ type InUDP struct {
 	cancel     context.CancelFunc
 	sendCh     chan util.Event
 	listener   *net.UDPConn
-	logger     *slog.Logger
 	addr       string
 	InputTag   string `mapstructure:"Tag"`
 	ListenAddr string `mapstructure:"ListenAddr"`
@@ -29,7 +28,7 @@ type InUDP struct {
 	BufferSize int64  `mapstructure:"BufferSize"`
 }
 
-func ParseUDP(input map[string]interface{}, logger *slog.Logger) (InUDP, error) {
+func ParseUDP(input map[string]interface{}) (InUDP, error) {
 	udpObject := InUDP{}
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		DecodeHook: mapstructure.TextUnmarshallerHookFunc(),
@@ -49,7 +48,6 @@ func ParseUDP(input map[string]interface{}, logger *slog.Logger) (InUDP, error) 
 	udpObject.BufferSize = cmp.Or(udpObject.BufferSize, defaultUDPBufferSize)
 	udpObject.addr = fmt.Sprintf("%s:%d", udpObject.ListenAddr, udpObject.Port)
 	udpObject.ctx, udpObject.cancel = context.WithCancel(context.Background())
-	udpObject.logger = logger
 	udpObject.sendCh = make(chan util.Event, 500) // Buffered channel to prevent blocking
 
 	return udpObject, nil
@@ -63,11 +61,11 @@ func (iUdp InUDP) Start() {
 			Port: iUdp.Port,
 		})
 		if err != nil {
-			iUdp.logger.Error("Couldn't start UDP input", "error", err)
+			slog.Error("Couldn't start UDP input", "error", err)
 			return
 		}
 
-		iUdp.logger.Info("Starting UDP input",
+		slog.Info("Starting UDP input",
 			"addr", iUdp.addr,
 			"buffer_size", iUdp.BufferSize,
 		)
@@ -78,14 +76,14 @@ func (iUdp InUDP) Start() {
 			select {
 			case <-iUdp.ctx.Done():
 				if err := iUdp.listener.Close(); err != nil {
-					iUdp.logger.Error("Error closing listener", "error", err)
+					slog.Error("Error closing listener", "error", err)
 				}
 				return
 			default:
 				// Read from the UDP listener
 				n, remoteAddr, err := iUdp.listener.ReadFromUDP(buffer)
 				if err != nil {
-					iUdp.logger.Error("Error reading from UDP connection", "error", err)
+					slog.Error("Error reading from UDP connection", "error", err)
 					continue
 				}
 
@@ -104,7 +102,7 @@ func (iUdp InUDP) Start() {
 						Metadata:    metadata,
 					}:
 					default:
-						iUdp.logger.Warn("Event channel full, dropping message", "remote_addr", remoteAddr)
+						slog.Warn("Event channel full, dropping message", "remote_addr", remoteAddr)
 					}
 				}
 			}

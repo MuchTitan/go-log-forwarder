@@ -3,25 +3,22 @@ package parser
 import (
 	"encoding/json"
 	"log-forwarder-client/util"
-	"log/slog"
 
 	"github.com/mitchellh/mapstructure"
 )
 
 type Json struct {
-	logger      *slog.Logger
 	ParserMatch string `mapstructure:"Match"`
 	TimeKey     string `mapstructure:"TimeKey"`
 	TimeFormat  string `mapstructure:"TimeFormat"`
 }
 
-func ParseJson(input map[string]interface{}, logger *slog.Logger) (Json, error) {
+func ParseJson(input map[string]interface{}) (Json, error) {
 	jsonObject := Json{}
 	err := mapstructure.Decode(input, &jsonObject)
 	if err != nil {
 		return jsonObject, err
 	}
-	jsonObject.logger = logger
 	return jsonObject, nil
 }
 

@@ -68,7 +68,6 @@ func init() {
 }
 
 func main() {
-	go printGoroutines()
 	defer database.CloseDB()
 	slog.Info("Starting Log forwarder")
 

@@ -72,7 +72,7 @@ func (r *Router) ApplyParsers(data *util.Event) {
 		}
 	}
 	if err != nil {
-		slog.Warn("Coundnt parse data with any defiend Parser", "InputTag", data.InputTag)
+		slog.Warn("Coundnt parse data with any defiend Parser", "InputTag", data.InputTag, "error", err)
 	}
 }
 
@@ -129,7 +129,7 @@ func (r *Router) Start() {
 
 	err = r.retryQueue.LoadDataFromDB(r.dbID, r.outputs)
 	if err != nil {
-		slog.Error("coundnt save state from retryQueue", "error", err)
+		slog.Error("coundnt load retryQueue state from db", "error", err)
 	}
 
 	r.wg.Add(1)

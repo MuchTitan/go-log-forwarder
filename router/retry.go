@@ -21,6 +21,7 @@ type RetryData struct {
 type RetryQueue struct {
 	doneCh chan struct{}
 	db     *sql.DB
+	wg     *sync.WaitGroup
 	queue  []RetryData
 	mu     sync.Mutex
 }
@@ -29,6 +30,7 @@ func NewRetryQueue() *RetryQueue {
 	return &RetryQueue{
 		doneCh: make(chan struct{}),
 		queue:  []RetryData{},
+		wg:     &sync.WaitGroup{},
 		db:     database.GetDB(),
 	}
 }
@@ -44,6 +46,8 @@ func (rq *RetryQueue) AddRetryData(data util.Event, outputs []output.Output) {
 }
 
 func (rq *RetryQueue) RetryHandlerLoop(routerID int64) {
+	rq.wg.Add(1)
+	defer rq.wg.Done()
 	ticker := time.NewTicker(time.Second * 5)
 	defer ticker.Stop()
 	for {
@@ -94,6 +98,7 @@ func (rq *RetryQueue) RetryHandlerLoop(routerID int64) {
 
 func (rq *RetryQueue) Stop() {
 	close(rq.doneCh)
+	rq.wg.Wait()
 }
 
 func (rq *RetryQueue) SaveStateToDB(routerID int64) error {

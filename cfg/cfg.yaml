@@ -9,14 +9,19 @@ Inputs:
     Glob: "./logs/file*.log"
     FilenameKey: "filename"
 
+  - Name: "tail"
+    Tag: "app"
+    Glob: "/var/log/syslog"
+    FilenameKey: "filename"
+
 Parsers:
   - Name: "json"
     Match: "*"
 
   - Name: "regex"
     Match: "app*"
-    Pattern: '^(?<host>[^ ]*) [^ ]* (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?$'
-    AllowEmtpy: false
+    Pattern: '^(?<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[\+\-]\d{2}:\d{2}) (?<host>[^\s]+) (?<service>\S+): (?<message>.+)$'
+    AllowEmtpy: true
 
 Outputs:
   - Name: "splunk"

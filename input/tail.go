@@ -93,7 +93,7 @@ func (t *Tail) Start(parentCtx context.Context, output chan<- global.Event) erro
 	t.wg.Add(1)
 	t.ctx, t.cancel = context.WithCancel(parentCtx)
 	go t.fileStatLoop(t.ctx)
-	slog.Info("Starting tail input", "glob", t.glob)
+	slog.Info("[Tail] Starting", "glob", t.glob)
 	go func() {
 		for {
 			select {
@@ -117,7 +117,7 @@ func (t *Tail) Start(parentCtx context.Context, output chan<- global.Event) erro
 }
 
 func (t *Tail) Exit() error {
-	slog.Info("Stopping tail input", "glob", t.glob)
+	slog.Info("[Tail] Stopping", "glob", t.glob)
 	if t.cancel != nil {
 		t.cancel()
 	}

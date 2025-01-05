@@ -61,7 +61,7 @@ func (e *Engine) Start() error {
 			defer e.wg.Done()
 			if err := in.Start(e.ctx, e.pipeline); err != nil {
 				// TODO: Implement proper error handling (error channel?)
-				slog.Error("Coundnt start input", "input", in.Name(), "error", err)
+				slog.Error("[Engine] Coundnt start input", "input", in.Name(), "error", err)
 			}
 		}(in)
 	}
@@ -103,7 +103,7 @@ func (e *Engine) processRecords() {
 				var err error
 				processedEvent, err = filter.Process(processedEvent)
 				if err != nil {
-					slog.Error("Coundnt filter event", "filter", filter.Name(), "error", err)
+					slog.Error("[Engine] Coundnt filter event", "filter", filter.Name(), "error", err)
 					continue
 				}
 				if processedEvent == nil {
@@ -136,7 +136,7 @@ func (e *Engine) processRecords() {
 func (e *Engine) flush(records []global.Event) {
 	for _, output := range e.outputs {
 		if err := output.Write(records); err != nil {
-			slog.Error("Coundnt write to output", "writer", output.Name(), "error", err)
+			slog.Error("[Engine] Coundnt write to output", "writer", output.Name(), "error", err)
 		}
 	}
 }

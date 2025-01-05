@@ -14,6 +14,7 @@ import (
 )
 
 type Stdout struct {
+	name       string
 	format     string             // Output format (json, template, plain)
 	template   *template.Template // Custom output template
 	jsonIndent bool               // Whether to indent JSON output
@@ -23,11 +24,16 @@ type Stdout struct {
 }
 
 func (s *Stdout) Name() string {
-	return "stdout_output"
+	return s.name
 }
 
 func (s *Stdout) Init(config map[string]interface{}) error {
 	// Set default format
+	s.name = util.MustString(config["Name"])
+	if s.name == "" {
+		s.name = "stdout"
+	}
+
 	s.format = util.MustString(config["Format"])
 	if s.format == "" {
 		s.format = "json"

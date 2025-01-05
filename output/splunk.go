@@ -52,12 +52,12 @@ func (s *Splunk) Init(config map[string]interface{}) error {
 	// Required fields
 	s.token = util.MustString(config["Token"])
 	if s.token == "" {
-		return errors.New("token is required")
+		return errors.New("splunk token is required")
 	}
 
 	s.index = util.MustString(config["EventIndex"])
 	if s.index == "" {
-		return errors.New("index is required")
+		return errors.New("splunk index is required")
 	}
 
 	// Optional fields with defaults
@@ -168,6 +168,10 @@ func (s *Splunk) Write(events []global.Event) error {
 }
 
 func (s *Splunk) Flush() error {
+	if s.buffer.Len() == 0 {
+		return nil
+	}
+
 	url := fmt.Sprintf("https://%s:%d/services/collector", s.host, s.port)
 	if s.sendRaw {
 		url += "/raw"

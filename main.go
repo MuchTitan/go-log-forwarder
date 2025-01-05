@@ -14,7 +14,7 @@ func main() {
 		panic(err)
 	}
 
-	slog.Info("Starting log forwarder")
+	slog.Info("[Engine] Starting log forwarder")
 
 	if err := engine.Start(); err != nil {
 		panic(err)
@@ -24,6 +24,6 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
-	slog.Info("Stopping log forwarder")
+	slog.Info("[Engine] Stopping log forwarder")
 	engine.Stop()
 }

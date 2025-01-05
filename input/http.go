@@ -154,7 +154,7 @@ func (h *InHTTP) Start(ctx context.Context, output chan<- global.Event) error {
 	go func() {
 		slog.Info("[HTTP] Starting", "Addr", h.addr)
 		if err := h.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("An error occured during the http input", "Addr", h.addr, "error", err)
+			slog.Error("[HTTP] An error occured during the http input", "addr", h.addr, "error", err)
 		}
 	}()
 	return nil
@@ -162,10 +162,10 @@ func (h *InHTTP) Start(ctx context.Context, output chan<- global.Event) error {
 
 func (h *InHTTP) Exit() error {
 	slog.Info("[HTTP] Stopping")
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second*30)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second*60)
 	defer shutdownCancel()
 	if err := h.server.Shutdown(shutdownCtx); err != nil {
-		slog.Error("[HTTP] error during http input server shutdown", "error", err)
+		slog.Error("[HTTP] error during http server shutdown", "error", err)
 		return err
 	}
 	h.wg.Wait()

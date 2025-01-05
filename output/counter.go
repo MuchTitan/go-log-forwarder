@@ -3,65 +3,67 @@ package output
 import (
 	"encoding/json"
 	"fmt"
-	"log-forwarder-client/util"
-	"os"
+	"log-forwarder/global"
+	"log-forwarder/util"
 	"sync"
-
-	"github.com/mitchellh/mapstructure"
 )
 
-type OutputToCounts struct {
-	mu     *sync.Mutex
-	counts map[string]uint64
-}
-
-func NewOutputToCounts() *OutputToCounts {
-	return &OutputToCounts{
-		mu:     &sync.Mutex{},
-		counts: make(map[string]uint64),
-	}
-}
-
-func (oc *OutputToCounts) IncrementCounter(output string) uint64 {
-	oc.mu.Lock()
-	if _, exists := oc.counts[output]; !exists {
-		oc.counts[output] = 0
-	}
-	oc.counts[output]++
-	oc.mu.Unlock()
-	return oc.counts[output]
-}
-
 type Counter struct {
-	OutToCounts *OutputToCounts
-	OutputMatch string `mapstructure:"Match"`
+	match string
+	name  string
+	mu    sync.Mutex
+	count uint64
 }
 
-func ParseCounter(input map[string]interface{}) (Counter, error) {
-	counterObject := Counter{
-		OutToCounts: NewOutputToCounts(),
-	}
-	err := mapstructure.Decode(input, &counterObject)
-	if err != nil {
-		return counterObject, err
-	}
-
-	return counterObject, nil
+func (c *Counter) Name() string {
+	return c.name
 }
 
-func (c Counter) Write(event util.Event) error {
-	count := c.OutToCounts.IncrementCounter(fmt.Sprintf("%s;%s", event.InputSource, event.InputTag))
-	data := map[string]uint64{
-		"count": count,
+func (c *Counter) Init(config map[string]interface{}) error {
+	c.name = util.MustString(config["Name"])
+	if c.name == "" {
+		c.name = "counter"
 	}
-	jsonData, _ := json.Marshal(data)
-	_, err := fmt.Fprintln(os.Stdout, string(jsonData))
-	return err
+
+	c.match = util.MustString(config["Match"])
+	if c.match == "" {
+		c.match = "*"
+	}
+
+	c.mu = sync.Mutex{}
+
+	return nil
 }
 
-func (c Counter) GetMatch() string {
-	if c.OutputMatch == "" {
-		return "*"
+func (c *Counter) IncrementCounter() uint64 {
+	c.mu.Lock()
+	c.count++
+	c.mu.Unlock()
+	return c.count
+}
+
+func (c *Counter) Write(events []global.Event) error {
+	for _, event := range events {
+		if !util.TagMatch(event.Metadata.Tag, c.match) {
+			continue
+		}
+		count := c.IncrementCounter()
+		data := map[string]interface{}{
+			"count": count,
+		}
+		jsonData, _ := json.Marshal(data)
+		_, err := fmt.Println(string(jsonData))
+		if err != nil {
+			return err
+		}
 	}
-	return c.OutputMatch
+	return nil
+}
+
+func (c *Counter) Flush() error {
+	return nil
+}
+
+func (c *Counter) Exit() error {
+	return nil
 }

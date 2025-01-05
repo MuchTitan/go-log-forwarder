@@ -3,448 +3,346 @@ package input
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"fmt"
 	"io"
-	"log-forwarder-client/database"
-	"log-forwarder-client/util"
+	"log-forwarder/global"
+	"log-forwarder/util"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
-
-	"github.com/mitchellh/mapstructure"
 )
 
-// Tail represents a file tailing system that monitors files matching a glob pattern
-// and sends their content through a channel. It supports multiple files and maintains
-// their reading state persistently.
 type Tail struct {
-	ctx             context.Context
-	files           *sync.Map
-	timers          *sync.Map
-	fileEventCH     chan string
-	sendChan        chan util.Event
-	cancel          context.CancelFunc
-	globalWg        *sync.WaitGroup
-	db              *sql.DB
-	stateUpdateChan chan stateUpdate
-	FilenameKey     string `mapstructure:"FilenameKey"`
-	Glob            string `mapstructure:"Glob"`
-	InputTag        string `mapstructure:"Tag"`
+	name           string
+	glob           string
+	tag            string
+	fileEventCh    chan string
+	debounceTimers map[string]*time.Timer
+	state          map[string]*filestate
+	fileStats      map[string]fileInfo
+	wg             sync.WaitGroup
+	mu             sync.Mutex
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
-type stateUpdate struct {
-	path  string
-	state TailFileState
+type filestate struct {
+	name         string
+	offset       int64
+	lastReadLine int
 }
 
-type TailFileState struct {
-	path         string
-	checksum     []byte
-	seekOffset   int64
-	lastSendLine int64
-	iNodeNumber  uint64
+type fileInfo struct {
+	modTime time.Time
+	size    int64
+	inode   uint64
 }
 
-// ParseTail creates a new Tail instance from a configuration map.
-// It initializes the necessary channels, maps, and file watcher.
-// Returns an error if the configuration is invalid or watcher creation fails.
-func ParseTail(input map[string]interface{}) (Tail, error) {
-	tail := Tail{
-		files:           &sync.Map{},
-		timers:          &sync.Map{},
-		sendChan:        make(chan util.Event),
-		fileEventCH:     make(chan string, 1000),
-		stateUpdateChan: make(chan stateUpdate, 1000),
-		globalWg:        &sync.WaitGroup{},
+func newFilestate(path string) *filestate {
+	return &filestate{
+		name:         path,
+		offset:       0,
+		lastReadLine: 0,
 	}
-	err := mapstructure.Decode(input, &tail)
-	if err != nil {
-		return tail, err
-	}
-
-	if tail.Glob == "" {
-		return tail, fmt.Errorf("No Glob provided in tail input")
-	}
-
-	if _, err := filepath.Glob(tail.Glob); err != nil {
-		return tail, fmt.Errorf("Malformed Glob provided in tail input")
-	}
-
-	tail.ctx, tail.cancel = context.WithCancel(context.Background())
-	tail.db = database.GetDB()
-
-	return tail, nil
 }
 
-// persistStates handles the batch persistence of file states to the database.
-// It runs in a separate goroutine and processes state updates in batches
-// to optimize database operations.
-func (t *Tail) persistStates() {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	defer t.globalWg.Done()
+func (t *Tail) Name() string {
+	return t.name
+}
 
-	var updates []stateUpdate
-	persistStates := func() {
-		if len(updates) == 0 {
-		}
+func (t *Tail) Tag() string {
+	return t.tag
+}
 
-		// Begin transaction
-		tx, err := t.db.Begin()
-		if err != nil {
-			slog.Error("Failed to begin transaction", "error", err)
-		}
+func getFileID(info os.FileInfo) (uint64, error) {
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		return stat.Ino, nil
+	}
+	return 0, fmt.Errorf("failed to get file inode")
+}
 
-		stmt, err := tx.Prepare(`
-				INSERT OR REPLACE INTO tail_file_state (filepath, seek_offset, checksum, last_send_line, inode_number)
-				VALUES (?, ?, ?, ?, ?)
-			`)
-		if err != nil {
-			slog.Error("Failed to prepare statement", "error", err)
-			tx.Rollback()
-		}
+func (t *Tail) Init(config map[string]interface{}) error {
+	t.glob = util.MustString(config["Glob"])
+	if t.glob == "" {
+		return fmt.Errorf("no glob provided for tail input")
+	}
 
-		for _, update := range updates {
-			_, err := stmt.Exec(
-				update.path,
-				update.state.seekOffset,
-				update.state.checksum,
-				update.state.lastSendLine,
-				update.state.iNodeNumber,
-			)
-			if err != nil {
-				slog.Error("Failed to execute statement", "error", err)
-				continue
+	t.name = util.MustString(config["Name"])
+	if t.name == "" {
+		t.name = "tail"
+	}
+
+	t.tag = util.MustString(config["Tag"])
+	if t.tag == "" {
+		t.tag = "tail"
+	}
+
+	t.state = make(map[string]*filestate)
+	t.debounceTimers = make(map[string]*time.Timer)
+	t.fileEventCh = make(chan string, 1000)
+	t.wg = sync.WaitGroup{}
+	t.mu = sync.Mutex{}
+	return nil
+}
+
+func (t *Tail) Start(parentCtx context.Context, output chan<- global.Event) error {
+	t.wg.Add(1)
+	t.ctx, t.cancel = context.WithCancel(parentCtx)
+	go t.fileStatLoop(t.ctx)
+	slog.Info("Starting tail input", "glob", t.glob)
+	go func() {
+		for {
+			select {
+			case <-t.ctx.Done():
+				t.mu.Lock()
+				for _, timer := range t.debounceTimers {
+					timer.Stop()
+				}
+				t.mu.Unlock()
+				return
+
+			case path, ok := <-t.fileEventCh:
+				if !ok {
+					return
+				}
+				go t.readFileWithDebounce(path, output)
 			}
 		}
+	}()
+	return nil
+}
 
-		stmt.Close()
-		err = tx.Commit()
+func (t *Tail) Exit() error {
+	slog.Info("Stopping tail input", "glob", t.glob)
+	if t.cancel != nil {
+		t.cancel()
+	}
+	t.wg.Wait()
+	close(t.fileEventCh)
+	return nil
+}
+
+func (t *Tail) fileStatLoop(ctx context.Context) {
+	ticker := time.NewTicker(time.Millisecond * 100)
+	defer ticker.Stop()
+	defer t.wg.Done()
+
+	t.fileStats = make(map[string]fileInfo)
+
+	sendFileEvent := func(path string) {
+		select {
+		case t.fileEventCh <- path:
+		default:
+			slog.Warn("file event overflow")
+		}
+	}
+
+	processFile := func(path string) error {
+		absPath, err := filepath.Abs(path)
 		if err != nil {
-			slog.Error("Failed to commit transaction", "error", err)
-			tx.Rollback()
+			return err
 		}
 
-		updates = updates[:0] // Clear the slice
+		info, err := os.Stat(absPath)
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		inode, err := getFileID(info)
+		if err != nil {
+			return err
+		}
+
+		currentInfo := fileInfo{
+			modTime: info.ModTime(),
+			size:    info.Size(),
+			inode:   inode,
+		}
+
+		prevInfo, exists := t.fileStats[absPath]
+		if !exists {
+			// New file
+			t.fileStats[absPath] = currentInfo
+			sendFileEvent(absPath)
+			return nil
+		}
+
+		// Check if file has been recreated or modified
+		if currentInfo.inode != prevInfo.inode ||
+			currentInfo.modTime != prevInfo.modTime ||
+			(currentInfo.size < prevInfo.size) {
+			// File was either recreated or truncated
+			t.mu.Lock()
+			delete(t.state, absPath) // Reset file state for recreated files
+			t.mu.Unlock()
+
+			t.fileStats[absPath] = currentInfo
+			sendFileEvent(absPath)
+		} else if currentInfo.size > prevInfo.size {
+			// File has grown
+			t.fileStats[absPath] = currentInfo
+			sendFileEvent(absPath)
+		}
+
+		return nil
 	}
+
+	// Initial file processing
+	matches, err := filepath.Glob(t.glob)
+	if err != nil {
+		slog.Error("couldn't get files for glob", "error", err)
+		return
+	}
+
+	for _, path := range matches {
+		if err := processFile(path); err != nil {
+			slog.Error("error processing file", "error", err, "path", path)
+		}
+	}
+
+	// Continuous monitoring
 	for {
 		select {
-		case <-t.ctx.Done():
-			persistStates()
+		case <-ctx.Done():
 			return
-		case update := <-t.stateUpdateChan:
-			updates = append(updates, update)
 		case <-ticker.C:
-			persistStates()
+			matches, err := filepath.Glob(t.glob)
+			if err != nil {
+				slog.Error("couldn't get files for glob", "error", err)
+				continue
+			}
+			for _, path := range matches {
+				if err := processFile(path); err != nil {
+					slog.Error("error processing file", "error", err, "path", path)
+				}
+			}
 		}
 	}
 }
 
-// GetTailFileStateFromDB retrieves the saved state of a file from the database.
-// Returns the state and true if found, or an empty state and false if not found.
-// Parameters:
-//   - path: The file path to look up
-//   - inodeNum: The inode number of the file for verification
-func (t *Tail) getTailFileStateFromDB(path string, inodeNum uint64) (TailFileState, bool) {
-	var state TailFileState
-	err := t.db.QueryRow(`
-		SELECT filepath, seek_offset,checksum, last_send_line, inode_number
-		FROM tail_file_state
-        WHERE filepath = ? AND inode_number = ?
-	`, path, inodeNum).Scan(&state.path, &state.seekOffset, &state.checksum, &state.lastSendLine, &state.iNodeNumber)
+func (t *Tail) readFileWithDebounce(path string, output chan<- global.Event) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
-	if err == sql.ErrNoRows {
-		return TailFileState{}, false
-	}
-	if err != nil {
-		slog.Error("Failed to query file state", "error", err)
-		return TailFileState{}, false
+	// Stop existing timer if any
+	if timer, exists := t.debounceTimers[path]; exists {
+		timer.Stop()
 	}
 
-	return state, true
+	// Create new timer
+	timer := time.AfterFunc(time.Second, func() {
+		t.mu.Lock()
+		delete(t.debounceTimers, path) // Clean up the timer reference
+		t.mu.Unlock()
+
+		// Only start reading if context is not cancelled
+		select {
+		case <-t.ctx.Done():
+			return
+		default:
+			t.wg.Add(1)
+			if err := t.readFile(path, output); err != nil {
+				slog.Error("couldn't read from file", "error", err, "path", path)
+			}
+		}
+	})
+
+	t.debounceTimers[path] = timer
 }
 
-func (t *Tail) updateFileState(path string, state TailFileState) {
-	t.files.Store(path, state)
-	// Send state update to be processed in batch
+func (t *Tail) readFile(path string, output chan<- global.Event) error {
+	defer t.wg.Done()
+
 	select {
-	case t.stateUpdateChan <- stateUpdate{path: path, state: state}:
+	case <-t.ctx.Done():
+		return nil
 	default:
-		slog.Warn("State update channel full, skipping persistence")
-	}
-}
-
-func (t *Tail) sendFileEvent(path string) {
-	select {
-	case t.fileEventCH <- path:
-	default:
-		slog.Warn("file event overflow")
-	}
-}
-
-func isPathDirectory(path string) (bool, error) {
-	stat, err := os.Stat(path)
-	if err != nil {
-		return false, err
 	}
 
-	return stat.IsDir(), nil
-}
-
-// readFile reads from a file starting at the given state's seek offset.
-// It sends each line through the sendChan and updates the file state.
-// Returns the updated state and any error encountered.
-func (t *Tail) readFile(path string, state TailFileState) (TailFileState, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return state, fmt.Errorf("error while opening file: %v", err)
+		return fmt.Errorf("error while opening file: %v", err)
 	}
 	defer file.Close()
 
 	// Get current file size
 	fileInfo, err := file.Stat()
 	if err != nil {
-		return state, fmt.Errorf("error getting file stats: %v", err)
+		return fmt.Errorf("error getting file stats: %v", err)
 	}
 
+	t.mu.Lock()
+	var currentFileState *filestate
+	if state, exists := t.state[path]; !exists {
+		currentFileState = &filestate{name: path}
+	} else {
+		currentFileState = state
+	}
+	t.mu.Unlock()
+
 	// If we're at EOF and the file has been truncated, reset to beginning
-	if state.seekOffset > fileInfo.Size() {
-		state.seekOffset = 0
+	if currentFileState.offset > fileInfo.Size() {
+		currentFileState.offset = 0
 	}
 
 	// Seek to the saved offset
-	file.Seek(state.seekOffset, io.SeekStart)
-
+	file.Seek(currentFileState.offset, io.SeekStart)
 	reader := bufio.NewReader(file)
-
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				currOffset, _ := file.Seek(0, io.SeekCurrent)
-				state.seekOffset = currOffset
-				return state, nil
-			}
-			slog.Error("cant read from file", "filepath", path)
-		}
-
-		state.lastSendLine++
-
-		line = strings.TrimSpace(line)
-
-		if len(line) < 1 {
-			continue
-		}
-
-		t.sendChan <- util.Event{
-			RawData:     []byte(line),
-			InputTag:    t.GetTag(),
-			InputSource: "tail",
-			Metadata:    t.buildMetadata(state),
-			Time:        time.Now().Unix(),
-		}
-	}
-}
-
-func CheckIfPathIsStillTheSameFile(path string, currState TailFileState) bool {
-	newFileINodeNumber, _ := util.GetInodeNumber(path)
-	newCheckSum, _ := util.CreateChecksumForFirstLine(path)
-
-	return (newFileINodeNumber == currState.iNodeNumber) && slices.Equal(newCheckSum, currState.checksum)
-}
-
-func newFileTailState(path string) TailFileState {
-	inodeNum, _ := util.GetInodeNumber(path)
-	checksum, _ := util.CreateChecksumForFirstLine(path)
-	return TailFileState{
-		path:        path,
-		checksum:    checksum,
-		iNodeNumber: inodeNum,
-	}
-}
-
-func (t *Tail) buildMetadata(state TailFileState) map[string]interface{} {
-	output := make(map[string]interface{})
-
-	if t.FilenameKey != "" {
-		output[t.FilenameKey] = state.path
-	}
-
-	return output
-}
-
-func (t *Tail) fileStatLoop() {
-	ticker := time.NewTicker(time.Millisecond * 100)
-	defer ticker.Stop()
-	defer t.globalWg.Done()
-	initialStats := make(map[string]os.FileInfo)
-
-	matches, err := filepath.Glob(t.Glob)
-	if err != nil {
-		panic(err)
-	}
-	for _, path := range matches {
-		absPath, err := filepath.Abs(path)
-		if err != nil {
-			continue
-		}
-		info, err := os.Stat(absPath)
-		if err != nil {
-			continue
-		}
-		if !info.IsDir() {
-			initialStats[absPath] = info
-			t.sendFileEvent(absPath)
-		}
-	}
 
 	for {
 		select {
 		case <-t.ctx.Done():
-			return
-		case <-ticker.C:
-			matches, err := filepath.Glob(t.Glob)
-			if err != nil {
-				slog.Error("coundnt get files for glob", "error", err)
-				continue
+			currOffset, _ := file.Seek(0, io.SeekCurrent)
+			t.mu.Lock()
+			currentFileState.offset = currOffset
+			t.state[path] = currentFileState
+			t.mu.Unlock()
+			return nil
+		default:
+		}
+
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				currOffset, _ := file.Seek(0, io.SeekCurrent)
+				t.mu.Lock()
+				currentFileState.offset = currOffset
+				t.state[path] = currentFileState
+				t.mu.Unlock()
+				return nil
 			}
-			for _, path := range matches {
-				absPath, err := filepath.Abs(path)
-				if err != nil {
-					continue
-				}
-				info, err := os.Stat(absPath)
-				if err != nil {
-					continue
-				}
-				if !info.IsDir() {
-					prevInfo, exists := initialStats[absPath]
-					if !exists || !prevInfo.ModTime().Equal(info.ModTime()) {
-						initialStats[absPath] = info
-						t.sendFileEvent(absPath)
-					}
-				}
-			}
+			return fmt.Errorf("error reading file: %v", err)
+		}
+
+		line = strings.TrimSpace(line)
+		currentFileState.lastReadLine++
+
+		if len(line) == 0 {
+			continue
+		}
+
+		event := global.Event{
+			Timestamp: time.Now(),
+			RawData:   line,
+			Metadata: global.Metadata{
+				Source:  path,
+				LineNum: currentFileState.lastReadLine,
+			},
+		}
+		AddMetadata(&event, t)
+
+		select {
+		case output <- event:
+		case <-t.ctx.Done():
+			return nil
 		}
 	}
-}
-
-func (t *Tail) HandleFileEvent(path string) {
-	defer t.globalWg.Done()
-
-	currINodeNum, err := util.GetInodeNumber(path)
-	if err != nil {
-		slog.Error("Cant get INodeNum", "error", err, "path", path)
-		return
-	}
-	if savedState, exists := t.getTailFileStateFromDB(path, currINodeNum); exists {
-		// Verify if the file is still the same
-		if CheckIfPathIsStillTheSameFile(path, savedState) {
-			t.deleteTimer(path)
-			newState, err := t.readFile(path, savedState)
-			if err != nil {
-				slog.Error("Couldn't read from file with saved state", "error", err)
-				return
-			}
-			t.updateFileState(path, newState)
-			return
-		}
-	}
-
-	// If no saved state or file changed, start fresh
-	newState := newFileTailState(path)
-	newState, err = t.readFile(path, newState)
-	if err != nil {
-		slog.Error("Couldn't read from file", "error", err)
-	}
-	t.updateFileState(path, newState)
-}
-
-func (t *Tail) deleteTimer(path string) {
-	if _, exists := t.timers.Load(path); exists {
-		t.timers.Delete(path)
-	}
-}
-
-func (t *Tail) HandleFileEventWithDebounce(path string) {
-	waitTime := time.Second
-
-	// Load or create timer with proper locking
-	actual, _ := t.timers.LoadOrStore(path, &sync.Mutex{})
-	mutex := actual.(*sync.Mutex)
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	// Get existing timer
-	value, exists := t.timers.Load(path + "_timer")
-	if exists {
-		timer := value.(*time.Timer)
-		timer.Stop()
-	}
-
-	// Create new timer
-	timer := time.AfterFunc(waitTime, func() {
-		t.globalWg.Add(1)
-		t.HandleFileEvent(path)
-		// Cleanup after execution
-		t.timers.Delete(path + "_timer")
-		t.timers.Delete(path)
-	})
-
-	t.timers.Store(path+"_timer", timer)
-}
-
-// Start begins monitoring files that match the configured glob pattern.
-// It starts multiple goroutines to:
-// - Watch for file system events
-// - Persist file states
-// - Monitor goroutine count
-// - Process initial files
-func (t Tail) Start() {
-	slog.Info("Starting file tail", "glob", t.Glob)
-	t.globalWg.Add(2)
-	go func() {
-		go t.persistStates()
-		go t.fileStatLoop()
-		for {
-			select {
-			case <-t.ctx.Done():
-				return
-			case path, ok := <-t.fileEventCH:
-				if !ok {
-					return
-				}
-				go t.HandleFileEventWithDebounce(path)
-			}
-		}
-	}()
-}
-
-func (t Tail) Read() <-chan util.Event {
-	return t.sendChan
-}
-
-// Stop gracefully shuts down the tail operation.
-// It cancels the context, closes the watcher, and waits for all goroutines to finish.
-func (t Tail) Stop() {
-	slog.Info("Stopping file tail", "glob", t.Glob)
-	if t.ctx != nil {
-		t.cancel()
-	}
-	t.globalWg.Wait()
-	close(t.sendChan)
-	close(t.stateUpdateChan)
-}
-
-// GetTag returns the configured input tag or "*" if none is set.
-func (t Tail) GetTag() string {
-	if t.InputTag == "" {
-		return "*"
-	}
-	return t.InputTag
 }

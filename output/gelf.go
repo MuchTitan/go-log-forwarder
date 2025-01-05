@@ -1,95 +1,137 @@
 package output
 
 import (
-	"cmp"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log-forwarder-client/util"
+	"io"
+	"log-forwarder/global"
+	"log-forwarder/util"
+	"log/slog"
 
-	"github.com/mitchellh/mapstructure"
 	"gopkg.in/Graylog2/go-gelf.v2/gelf"
 )
 
 type GELF struct {
-	writer      gelf.Writer
-	Host        string `mapstructure:"Host"`
-	Mode        string `mapstructure:"Mode"`
-	OutputMatch string `mapstructure:"Match"`
-	Port        int    `mapstructure:"Port"`
+	name   string
+	match  string
+	host   string
+	port   int
+	mode   string
+	buffer []*gelf.Message
+	writer gelf.Writer
 }
 
-func (g *GELF) SetupWriter() error {
-	addr := fmt.Sprintf("%s:%d", g.Host, g.Port)
-	var w gelf.Writer
+func (g *GELF) Name() string {
+	return g.name
+}
 
-	switch g.Mode {
+func (g *GELF) Init(config map[string]interface{}) error {
+	g.name = util.MustString(config["Name"])
+	if g.name == "" {
+		g.name = "gelf"
+	}
+
+	g.match = util.MustString(config["Match"])
+	if g.match == "" {
+		g.match = "*"
+	}
+
+	g.host = util.MustString(config["Host"])
+	if g.host == "" {
+		g.host = "127.0.0.1"
+	}
+
+	g.mode = util.MustString(config["Mode"])
+	if g.mode == "" {
+		g.mode = "udp"
+	}
+	if g.mode != "udp" && g.mode != "tcp" {
+		return fmt.Errorf("mode: '%v' is not implemented", g.mode)
+	}
+
+	if portStr := config["Port"]; portStr != "" {
+		var ok bool
+		if g.port, ok = portStr.(int); !ok {
+			return errors.New("cant convert port to int")
+		}
+	} else {
+		g.port = 12201
+	}
+
+	g.buffer = make([]*gelf.Message, 0, 100)
+
+	return g.setupWriter()
+}
+
+func (g *GELF) setupWriter() error {
+	addr := fmt.Sprintf("%s:%d", g.host, g.port)
+	var w gelf.Writer
+	var err error
+
+	switch g.mode {
 	case "udp":
-		udpWriter, err := gelf.NewUDPWriter(addr)
-		if err != nil {
-			return fmt.Errorf("failed to create UDP writer: %w", err)
-		}
-		w = udpWriter
+		w, err = gelf.NewUDPWriter(addr)
 	case "tcp":
-		tcpWriter, err := gelf.NewTCPWriter(addr)
-		if err != nil {
-			return fmt.Errorf("failed to create TCP writer: %w", err)
-		}
-		w = tcpWriter
+		w, err = gelf.NewTCPWriter(addr)
 	default:
-		return fmt.Errorf("unsupported mode: %s", g.Mode)
+		return fmt.Errorf("unsupported mode: %s", g.mode)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to create %s writer: %w", g.mode, err)
 	}
 
 	g.writer = w
 	return nil
 }
 
-func ParseGELF(input map[string]interface{}) (GELF, error) {
-	gelf := GELF{}
-	err := mapstructure.Decode(input, &gelf)
-	if err != nil {
-		return gelf, err
+func (g *GELF) Write(events []global.Event) error {
+	for _, event := range events {
+		var jsonData string
+		if event.ParsedData != nil {
+			tmp, _ := json.Marshal(event.ParsedData)
+			jsonData = string(tmp)
+		} else {
+			jsonData = event.RawData
+		}
+
+		msg := gelf.Message{
+			Version:  "1.1",
+			Host:     "log-forwarder",
+			Short:    jsonData,
+			TimeUnix: float64(event.Timestamp.Unix()),
+			Level:    gelf.LOG_INFO, // Info level by default
+			Extra:    make(map[string]interface{}),
+		}
+
+		g.buffer = append(g.buffer, &msg)
+
+		if len(g.buffer) > 100 {
+			if err := g.Flush(); err != nil {
+				slog.Error("coudnt flush gelf output", "error", err)
+			}
+		}
 	}
-
-	gelf.Host = cmp.Or(gelf.Host, "127.0.0.1")
-	gelf.Port = cmp.Or(gelf.Port, 12201)
-	gelf.Mode = cmp.Or(gelf.Mode, "udp")
-
-	if gelf.Mode != "udp" && gelf.Mode != "tcp" {
-		return gelf, fmt.Errorf("Mode: '%v' is not implemented", gelf.Mode)
-	}
-
-	err = gelf.SetupWriter()
-	if err != nil {
-		return gelf, fmt.Errorf("failed to setup GELF writer: %w", err)
-	}
-
-	return gelf, nil
+	return nil
 }
 
-func (g GELF) Write(event util.Event) error {
-	var jsonData []byte
-	if event.ParsedData == nil {
-		jsonData, _ = json.Marshal(event.ParsedData)
-	} else {
-		jsonData = event.RawData
+func (g *GELF) Flush() error {
+	for _, data := range g.buffer {
+		err := g.writer.WriteMessage(data)
+		if err != nil {
+			return err
+		}
 	}
-
-	// Convert the event to a GELF message
-	msg := gelf.Message{
-		Version:  "1.1",
-		Host:     "log-forwarder",
-		Short:    string(jsonData),
-		TimeUnix: float64(event.Time),
-		Level:    6, // Info level by default
-		Extra:    make(map[string]interface{}),
-	}
-
-	return g.writer.WriteMessage(&msg)
+	g.buffer = g.buffer[:0]
+	return nil
 }
 
-func (g GELF) GetMatch() string {
-	if g.OutputMatch == "" {
-		return "*"
+func (g *GELF) Exit() error {
+	if g.writer != nil {
+		if closer, ok := g.writer.(io.Closer); ok {
+			return closer.Close()
+		}
 	}
-	return g.OutputMatch
+	return nil
 }

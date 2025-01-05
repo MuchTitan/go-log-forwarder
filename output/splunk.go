@@ -2,35 +2,40 @@ package output
 
 import (
 	"bytes"
-	"cmp"
 	"compress/gzip"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log-forwarder-client/util"
-	"log/slog"
+	"log-forwarder/global"
+	"log-forwarder/util"
 	"net/http"
+	"os"
 	"time"
-
-	"github.com/mitchellh/mapstructure"
 )
 
 type Splunk struct {
-	httpClient        *http.Client
-	EventFields       map[string]interface{} `mapstructure:"EventFields"`
-	SplunkToken       string                 `mapstructure:"Token"`
-	Host              string                 `mapstructure:"Host"`
-	EventHost         string                 `mapstructure:"EventHost"`
-	EventSourceType   string                 `mapstructure:"EventSourceType"`
-	EventIndex        string                 `mapstructure:"EventIndex"`
-	OutputMatch       string                 `mapstructure:"Match"`
-	CompressingMethod string                 `mapstructure:"Compress"`
-	Port              int                    `mapstructure:"Port"`
-	VerifyTLS         bool                   `mapstructure:"VerifyTLS"`
-	SendRaw           bool                   `mapstructure:"SendRaw"`
+	name        string
+	token       string
+	match       string
+	host        string
+	eventHost   string
+	sourceType  string
+	index       string
+	port        int
+	compress    bool
+	verifyTLS   bool
+	sendRaw     bool
+	httpClient  *http.Client
+	eventFields map[string]interface{}
+	buffer      bytes.Buffer
 }
 
-type SplunkPostData struct {
+func (s *Splunk) MatchTag(inputTag string) bool {
+	return util.TagMatch(inputTag, s.match)
+}
+
+type splunkEvent struct {
 	Event      interface{} `json:"event"`
 	Index      string      `json:"index"`
 	Source     string      `json:"source"`
@@ -39,98 +44,122 @@ type SplunkPostData struct {
 	Time       int64       `json:"time"`
 }
 
-func ParseSplunk(input interface{}) (Splunk, error) {
-	splunk := Splunk{}
-	err := mapstructure.Decode(input, &splunk)
-	if err != nil {
-		return splunk, fmt.Errorf("Coundnt parse Splunk config. Error: %w", err)
+func (s *Splunk) Name() string {
+	return s.name
+}
+
+func (s *Splunk) Init(config map[string]interface{}) error {
+	// Required fields
+	s.token = util.MustString(config["Token"])
+	if s.token == "" {
+		return errors.New("token is required")
 	}
 
-	// Check for misconfiguration
-	if splunk.EventIndex == "" {
-		return splunk, fmt.Errorf("Cant output to splunk without a Index")
+	s.index = util.MustString(config["EventIndex"])
+	if s.index == "" {
+		return errors.New("index is required")
 	}
 
-	if splunk.SplunkToken == "" {
-		return splunk, fmt.Errorf("Cant output to splunk without a Token")
+	// Optional fields with defaults
+	s.name = util.MustString(config["Name"])
+	if s.name == "" {
+		s.name = "splunk"
 	}
 
-	// Setup Defaults
-	splunk.EventHost = cmp.Or(splunk.EventHost, util.GetHostname())
-	splunk.EventSourceType = cmp.Or(splunk.EventSourceType, "JSON")
-	splunk.CompressingMethod = cmp.Or(splunk.CompressingMethod, "gzip")
+	s.match = util.MustString(config["Match"])
+	if s.match == "" {
+		s.match = "*"
+	}
+
+	s.host = util.MustString(config["Host"])
+	if s.host == "" {
+		s.host = "localhost"
+	}
+
+	s.eventHost = util.MustString(config["EventHost"])
+	if s.eventHost == "" {
+		hostname, _ := os.Hostname()
+		s.eventHost = hostname
+	}
+
+	s.sourceType = util.MustString(config["EventSourcetype"])
+	if s.sourceType == "" {
+		s.sourceType = "JSON"
+	}
+
+	if port, exists := config["Port"]; exists {
+		var ok bool
+		if s.port, ok = port.(int); !ok {
+			return errors.New("cant convert port to int")
+		}
+	} else {
+		s.port = 8088
+	}
+
+	s.compress = config["Compress"] == true
+	s.verifyTLS = config["VerifyTLS"] == true
+	s.sendRaw = config["SendRaw"] == true
 
 	// Setup TLS
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: !splunk.VerifyTLS,
+			InsecureSkipVerify: !s.verifyTLS,
 		},
 	}
 
-	client := &http.Client{
+	s.httpClient = &http.Client{
 		Transport: tr,
 		Timeout:   time.Second * 30,
 	}
 
-	splunk.httpClient = client
-	return splunk, nil
+	s.buffer = bytes.Buffer{}
+	return nil
 }
 
-func (s Splunk) GetMatch() string {
-	if s.OutputMatch == "" {
-		return "*"
-	}
-	return s.OutputMatch
+func AppendMetadata(splunkevent *splunkEvent, event *global.Event) {
+	currData := splunkevent.Event.(map[string]interface{})
+	currData["source"] = event.Metadata.Source
+	currData["lineNum"] = event.Metadata.LineNum
+	splunkevent.Event = currData
 }
 
-func (s Splunk) Write(data util.Event) error {
-	var eventData interface{}
-	if !s.SendRaw {
-		if data.ParsedData == nil {
-			slog.Warn("Trying to send to splunk Parsed Data without a defiend Parser. Sending raw data.")
-			return nil
-		}
-		eventData = util.MergeMaps(data.ParsedData, s.EventFields)
-	} else {
-		eventData = string(data.RawData)
+func (s *Splunk) newSplunkEvent(event global.Event) splunkEvent {
+	splunkevent := splunkEvent{
+		Index:      s.index,
+		Source:     s.eventHost,
+		Sourcetype: s.sourceType,
+		Host:       "log-forwarder",
+		Time:       event.Timestamp.Unix(),
 	}
 
-	postData := SplunkPostData{
-		Time:       data.Time,
-		Index:      s.EventIndex,
-		Host:       s.EventHost,
-		Source:     "log-forwarder",
-		Sourcetype: s.EventSourceType,
-		Event:      eventData,
+	if s.sendRaw {
+		splunkevent.Event = event.RawData
+		return splunkevent
 	}
 
-	postDataRaw, err := json.Marshal(postData)
-	if err != nil {
-		slog.Debug("Coundnt parse data in to JSON format", "error", err)
-		return err
+	if len(event.ParsedData) != 0 {
+		splunkevent.Event = util.MergeMaps(event.ParsedData, s.eventFields)
+		AppendMetadata(&splunkevent, &event)
 	}
 
-	if s.CompressingMethod == "gzip" {
-		var gzippedData bytes.Buffer
-		gzipWriter := gzip.NewWriter(&gzippedData)
-		_, err := gzipWriter.Write(postDataRaw)
-		if err != nil {
-			slog.Debug("Failed to gzip data", "error", err)
-			return err
-		}
-		// Ensure all data is written and the writer is closed
-		gzipWriter.Close()
+	return splunkevent
+}
 
-		// Send the gzipped data
-		err = s.SendDataToSplunk(gzippedData.Bytes())
-		if err != nil {
-			slog.Debug("Coundnt send gzipped data to splunk", "error", err)
-			return err
+func (s *Splunk) Write(events []global.Event) error {
+	for _, event := range events {
+		splunkevent := s.newSplunkEvent(event)
+		if splunkevent.Event == nil {
+			fmt.Println(event)
 		}
-	} else {
-		err = s.SendDataToSplunk(postDataRaw)
+		data, err := json.Marshal(splunkevent)
 		if err != nil {
-			slog.Debug("Coundnt send to splunk", "error", err)
+			return fmt.Errorf("failed to marshal event: %w", err)
+		}
+		s.buffer.Write(data)
+	}
+
+	if s.buffer.Len() > 100 {
+		if err := s.Flush(); err != nil {
 			return err
 		}
 	}
@@ -138,33 +167,47 @@ func (s Splunk) Write(data util.Event) error {
 	return nil
 }
 
-func (s *Splunk) SendDataToSplunk(data []byte) error {
-	var serverURL string
-	if s.SendRaw {
-		serverURL = fmt.Sprintf("https://%s:%d/services/collector/raw", s.Host, s.Port)
+func (s *Splunk) Flush() error {
+	url := fmt.Sprintf("https://%s:%d/services/collector", s.host, s.port)
+	if s.sendRaw {
+		url += "/raw"
+	}
+
+	var requestBody bytes.Buffer
+	if s.compress {
+		gz := gzip.NewWriter(&requestBody)
+		if _, err := gz.Write(s.buffer.Bytes()); err != nil {
+			return fmt.Errorf("error during gzip compress: %w", err)
+		}
+		if err := gz.Close(); err != nil {
+			return err
+		}
 	} else {
-		serverURL = fmt.Sprintf("https://%s:%d/services/collector", s.Host, s.Port)
+		requestBody = s.buffer
 	}
-	req, err := http.NewRequest("POST", serverURL, bytes.NewBuffer(data))
+	tmp := s.buffer.String()
+	s.buffer.Reset()
+
+	req, _ := http.NewRequest("POST", url, &requestBody)
+	req.Header.Set("Authorization", "Splunk "+s.token)
+	req.Header.Set("Content-Type", "application/json")
+	if s.compress {
+		req.Header.Set("Content-Encoding", "gzip")
+	}
+
+	res, err := s.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("HTTP post failed: %w", err)
+		return err
 	}
+	defer res.Body.Close()
 
-	req.Header.Add("Content-Type", "application/json")
-	if s.CompressingMethod == "gzip" {
-		req.Header.Add("Content-Encoding", "gzip")
+	if res.StatusCode != http.StatusOK {
+		fmt.Println(tmp)
+		return fmt.Errorf("splunk returned status: %s", res.Status)
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Splunk %s", s.SplunkToken))
+	return nil
+}
 
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("HTTP post failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
+func (s *Splunk) Exit() error {
 	return nil
 }

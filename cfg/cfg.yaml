@@ -1,35 +1,20 @@
 System:
-  loglevel: INFO
-  dbfile: "./state.db"
-  logfile: "./forwarder.log"
+  logLevel: DEBUG
+  logFile: "./forwarder.log"
 
 Inputs:
-  - Name: "tail"
+  - Type: "tail"
     Tag: "app-log"
     Glob: "./logs/file*.log"
-    FilenameKey: "filename"
-
-  - Name: "tail"
-    Tag: "app"
-    Glob: "/var/log/syslog"
-    FilenameKey: "filename"
 
 Parsers:
-  - Name: "json"
-    Match: "*"
-
-  - Name: "regex"
-    Match: "app*"
-    Pattern: '^(?<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[\+\-]\d{2}:\d{2}) (?<host>[^\s]+) (?<service>\S+): (?<message>.+)$'
-    AllowEmtpy: true
+  - Type: "json"
 
 Outputs:
-  - Name: "splunk"
+  - Type: "splunk"
     Match: "*"
     Host: "localhost"
     Port: 8088
     Token: "${Splunk_Token}"
     VerifyTLS: false
-    SendRaw: false
-    EventSourceType: "application-log"
     EventIndex: "test"

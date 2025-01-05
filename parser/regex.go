@@ -2,92 +2,83 @@ package parser
 
 import (
 	"fmt"
-	"log-forwarder-client/util"
+	"log-forwarder/global"
+	"log-forwarder/util"
 	"regexp"
-
-	"github.com/mitchellh/mapstructure"
+	"time"
 )
 
 type Regex struct {
-	re          *regexp.Regexp
-	Types       map[string]string `mapstructure:"Types"`
-	FilterMatch string            `mapstructure:"Match"`
-	Pattern     string            `mapstructure:"Pattern"`
-	TimeKey     string            `mapstructure:"TimeKey"`
-	TimeFormat  string            `mapstructure:"TimeFormat"`
-	AllowEmpty  bool              `mapstructure:"AllowEmpty"`
+	name       string
+	re         *regexp.Regexp
+	timeKey    string
+	timeFormat string
+	allowEmpty bool
 }
 
-func ParseRegex(input map[string]interface{}) (Regex, error) {
-	regex := Regex{}
-	err := mapstructure.Decode(input, &regex)
+func (r *Regex) Name() string {
+	return r.name
+}
+
+func (r *Regex) Init(config map[string]interface{}) error {
+	r.name = util.MustString(config["Name"])
+	if r.name == "" {
+		r.name = "regex"
+	}
+
+	var err error
+	r.re, err = regexp.Compile(util.MustString(config["Pattern"]))
 	if err != nil {
-		return regex, err
+		return err
 	}
 
-	if regex.Pattern == "" {
-		return regex, fmt.Errorf("For regex parser is not Pattern defiend")
+	r.allowEmpty = config["AllowEmpty"] == true
+
+	r.timeKey = util.MustString(config["TimeKey"])
+
+	r.timeFormat = util.MustString(config["TimeFormat"])
+	if r.timeFormat != "" {
+		_, err := time.Parse(r.timeFormat, time.Now().String())
+		if err != nil {
+			return fmt.Errorf("not a valid time format in Json Parser err: %w", err)
+		}
+	} else {
+		r.timeFormat = time.RFC3339
 	}
 
-	regex.re = regexp.MustCompile(regex.Pattern)
-
-	return regex, nil
+	return nil
 }
 
-func (r Regex) Apply(data *util.Event) error {
-	lineData := string(data.RawData)
-	matches := r.re.FindStringSubmatch(lineData)
-
+func (r *Regex) Process(event *global.Event) bool {
+	matches := r.re.FindStringSubmatch(event.RawData)
 	if matches == nil {
-		return fmt.Errorf("no matches found for line data: '%s'", lineData)
+		return false
 	}
 
 	// Extract named groups
 	decodedData := make(map[string]interface{})
 	for i, name := range r.re.SubexpNames() {
 		if i != 0 && name != "" {
-			if r.AllowEmpty {
-				decodedData[name] = matches[i]
-				continue
-			}
 			value := matches[i]
-			if value != "" {
+			if r.allowEmpty {
 				decodedData[name] = value
-			}
-		}
-	}
-	for i, name := range r.re.SubexpNames() {
-		if i != 0 && name != "" {
-			if r.AllowEmpty {
-				decodedData[name] = matches[i]
 				continue
 			}
-			value := matches[i]
 			if value != "" {
 				decodedData[name] = value
 			}
 		}
 	}
 
-	data.ParsedData = decodedData
-	data.ParsedData = util.MergeMaps(data.ParsedData, data.Metadata)
+	event.ParsedData = decodedData
 
-	if r.TimeKey == "" || r.TimeFormat == "" {
-		return nil
+	if r.timeFormat != "" && r.timeKey != "" {
+		ExtractTime(event, r.timeKey, r.timeFormat)
 	}
 
-	err := ExtractTimeKey(r.TimeKey, r.TimeFormat, data)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	return nil
+	return true
 }
 
-func (r Regex) GetMatch() string {
-	if r.FilterMatch == "" {
-		return "*"
-	}
-
-	return r.FilterMatch
+func (r *Regex) Exit() error {
+	return nil
 }

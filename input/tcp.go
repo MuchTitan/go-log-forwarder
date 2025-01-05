@@ -1,119 +1,169 @@
 package input
 
 import (
-	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"log-forwarder-client/util"
+	"log-forwarder/global"
+	"log-forwarder/util"
 	"log/slog"
 	"net"
 	"sync"
 	"time"
-
-	"github.com/mitchellh/mapstructure"
 )
 
 const (
-	defaultTCPBufferSize  int64 = 64 << 10 // 64KB
-	defaultTCPTimeout           = 10       // 10 minute timeout
-	maxConnectionCountTCP       = 50       // Maximum number of concurrent connections
+	defaultTCPBufferSize  = 64 << 10 // 64KB
+	defaultTCPTimeout     = 10       // 10 minute timeout
+	maxConnectionCountTCP = 50       // Maximum number of concurrent connections
 )
 
-type InTCP struct {
-	ctx               context.Context
-	listener          net.Listener
-	sendCh            chan util.Event
-	cancel            context.CancelFunc
-	wg                *sync.WaitGroup
-	connCountMutex    *sync.RWMutex
-	activeConns       *sync.Map
-	ListenAddr        string `mapstructure:"ListenAddr"`
-	addr              string
-	InputTag          string        `mapstructure:"Tag"`
-	Port              int           `mapstructure:"Port"`
-	BufferSize        int64         `mapstructure:"BufferSize"`
-	ConnectionTimeout time.Duration `mapstructure:"ConnectionTimeout"`
-	connCount         int32
+type TCP struct {
+	name           string
+	tag            string
+	listenAddr     string
+	port           int
+	bufferSize     int64
+	timeout        time.Duration
+	listener       net.Listener
+	activeConns    sync.Map
+	connCount      int32
+	connCountMutex sync.RWMutex
+	wg             sync.WaitGroup
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
-func ParseTCP(input map[string]interface{}) (InTCP, error) {
-	tcpObject := InTCP{}
-	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-		DecodeHook: mapstructure.TextUnmarshallerHookFunc(),
-		Result:     &tcpObject,
-	})
-	if err != nil {
-		return tcpObject, fmt.Errorf("failed to create decoder: %w", err)
-	}
-
-	if err := decoder.Decode(input); err != nil {
-		return tcpObject, fmt.Errorf("failed to decode TCP config: %w", err)
-	}
-
-	tcpObject.BufferSize = tcpObject.BufferSize << 10 // Convert to KB
-
-	// Set Defaults
-	tcpObject.ListenAddr = cmp.Or(tcpObject.ListenAddr, "0.0.0.0")
-	tcpObject.Port = cmp.Or(tcpObject.Port, 6666)
-	tcpObject.BufferSize = cmp.Or(tcpObject.BufferSize, defaultTCPBufferSize)
-	tcpObject.ConnectionTimeout = cmp.Or(tcpObject.ConnectionTimeout, defaultTCPTimeout)
-	tcpObject.addr = fmt.Sprintf("%s:%d", tcpObject.ListenAddr, tcpObject.Port)
-	tcpObject.ctx, tcpObject.cancel = context.WithCancel(context.Background())
-	tcpObject.sendCh = make(chan util.Event, 500) // Buffered channel to prevent blocking
-	tcpObject.wg = &sync.WaitGroup{}
-	tcpObject.connCountMutex = &sync.RWMutex{}
-	tcpObject.activeConns = &sync.Map{}
-
-	return tcpObject, nil
+type connState struct {
+	conn     net.Conn
+	closed   bool
+	closeMux sync.Mutex
 }
 
-func (iTcp *InTCP) incrementConnCount() bool {
-	iTcp.connCountMutex.Lock()
-	defer iTcp.connCountMutex.Unlock()
+func newConnState(conn net.Conn) *connState {
+	return &connState{
+		conn:   conn,
+		closed: false,
+	}
+}
 
-	if iTcp.connCount >= maxConnectionCountTCP {
+func (cs *connState) Close() error {
+	cs.closeMux.Lock()
+	defer cs.closeMux.Unlock()
+
+	if !cs.closed {
+		cs.closed = true
+		return cs.conn.Close()
+	}
+	return nil
+}
+
+func (cs *connState) IsClosed() bool {
+	cs.closeMux.Lock()
+	defer cs.closeMux.Unlock()
+	return cs.closed
+}
+
+func (t *TCP) Name() string {
+	return t.name
+}
+
+func (t *TCP) Tag() string {
+	return t.tag
+}
+
+func (t *TCP) Init(config map[string]interface{}) error {
+	t.listenAddr = util.MustString(config["ListenAddr"])
+	if t.listenAddr == "" {
+		t.listenAddr = "0.0.0.0"
+	}
+
+	if portStr, exists := config["Port"]; exists {
+		var ok bool
+		if t.port, ok = portStr.(int); !ok {
+			return errors.New("cant convert port to int")
+		}
+	} else {
+		t.port = 6666
+	}
+
+	if bufferSizeStr, exists := config["BufferSize"]; exists {
+		var ok bool
+		if t.bufferSize, ok = bufferSizeStr.(int64); !ok {
+			return errors.New("cant convert bufferSize to int")
+		}
+		t.bufferSize <<= 10 // Convert to KB
+	} else {
+		t.bufferSize = defaultTCPBufferSize
+	}
+
+	if timeoutStr, exists := config["Timeout"]; exists {
+		if _, err := fmt.Sscanf(timeoutStr.(string), "%d", &t.timeout); err != nil {
+			return fmt.Errorf("invalid timeout: %v", err)
+		}
+	} else {
+		t.timeout = defaultTCPTimeout
+	}
+
+	t.name = util.MustString(config["Name"])
+	if t.name == "" {
+		t.name = "tcp"
+	}
+
+	t.tag = util.MustString(config["Tag"])
+	if t.tag == "" {
+		t.tag = "tcp"
+	}
+
+	return nil
+}
+
+func (t *TCP) incrementConnCount() bool {
+	t.connCountMutex.Lock()
+	defer t.connCountMutex.Unlock()
+
+	if t.connCount >= maxConnectionCountTCP {
 		return false
 	}
 
-	iTcp.connCount++
+	t.connCount++
 	return true
 }
 
-func (iTcp *InTCP) decrementConnCount() {
-	iTcp.connCountMutex.Lock()
-	defer iTcp.connCountMutex.Unlock()
+func (t *TCP) decrementConnCount() {
+	t.connCountMutex.Lock()
+	defer t.connCountMutex.Unlock()
 
-	if iTcp.connCount > 0 {
-		iTcp.connCount--
+	if t.connCount > 0 {
+		t.connCount--
 	}
 }
 
-func (iTcp *InTCP) handleConnection(connState *connState) {
-	defer iTcp.wg.Done()
-	defer connState.Close()
-	defer iTcp.decrementConnCount()
-	defer iTcp.activeConns.Delete(connState)
+func (t *TCP) handleConnection(cs *connState, output chan<- global.Event) {
+	defer t.wg.Done()
+	defer cs.Close()
+	defer t.decrementConnCount()
+	defer t.activeConns.Delete(cs)
 
-	conn := connState.conn
+	conn := cs.conn
 	remoteAddr := conn.RemoteAddr().String()
+	linenumber := 0
 
-	// Set initial deadline
-	if err := conn.SetDeadline(time.Now().Add(iTcp.ConnectionTimeout * time.Minute)); err != nil {
+	if err := conn.SetDeadline(time.Now().Add(t.timeout * time.Minute)); err != nil {
 		slog.Error("Failed to set connection deadline", "error", err, "remote_addr", remoteAddr)
 		return
 	}
 
-	buffer := make([]byte, iTcp.BufferSize)
+	buffer := make([]byte, t.bufferSize)
 	slog.Info("New connection established", "remote_addr", remoteAddr)
 
-	readCtx, cancel := context.WithCancel(iTcp.ctx)
+	readCtx, cancel := context.WithCancel(t.ctx)
 	defer cancel()
 
-	// Handle context cancellation
 	go func() {
 		<-readCtx.Done()
-		if err := connState.Close(); err != nil {
+		if err := cs.Close(); err != nil {
 			slog.Debug("Error closing connection during shutdown",
 				"error", err,
 				"remote_addr", remoteAddr)
@@ -121,7 +171,7 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 	}()
 
 	for {
-		if connState.IsClosed() {
+		if cs.IsClosed() {
 			return
 		}
 
@@ -130,9 +180,8 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 			slog.Info("Connection closed due to shutdown", "remote_addr", remoteAddr)
 			return
 		default:
-			// Set a shorter read deadline to allow for quicker shutdown
 			if err := conn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
-				if !connState.IsClosed() {
+				if !cs.IsClosed() {
 					slog.Error("Failed to reset deadline",
 						"error", err,
 						"remote_addr", remoteAddr)
@@ -154,8 +203,7 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 					continue
 				}
 
-				// Only log if connection wasn't deliberately closed
-				if !connState.IsClosed() && iTcp.ctx.Err() != nil {
+				if !cs.IsClosed() && t.ctx.Err() != nil {
 					slog.Error("Error reading from connection",
 						"error", err,
 						"remote_addr", remoteAddr)
@@ -163,9 +211,8 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 				return
 			}
 
-			// Reset the full timeout after successful read
-			if err := conn.SetReadDeadline(time.Now().Add(iTcp.ConnectionTimeout * time.Minute)); err != nil {
-				if !connState.IsClosed() {
+			if err := conn.SetReadDeadline(time.Now().Add(t.timeout * time.Minute)); err != nil {
+				if !cs.IsClosed() {
 					slog.Error("Failed to reset timeout deadline",
 						"error", err,
 						"remote_addr", remoteAddr)
@@ -174,18 +221,21 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 			}
 
 			if n > 0 {
-				metadata := map[string]interface{}{
-					"SourceIP": remoteAddr,
+				linenumber++
+				event := global.Event{
+					Timestamp: time.Now(),
+					RawData:   string(buffer[:n]),
+					Metadata: global.Metadata{
+						Source:  remoteAddr,
+						LineNum: linenumber,
+					},
 				}
+				AddMetadata(&event, t)
 
 				select {
-				case iTcp.sendCh <- util.Event{
-					RawData:     buffer[:n],
-					Time:        time.Now().Unix(),
-					InputTag:    iTcp.GetTag(),
-					InputSource: "tcp",
-					Metadata:    metadata,
-				}:
+				case output <- event:
+				case <-t.ctx.Done():
+					return
 				default:
 					slog.Warn("Event channel full, dropping message", "remote_addr", remoteAddr)
 				}
@@ -194,43 +244,40 @@ func (iTcp *InTCP) handleConnection(connState *connState) {
 	}
 }
 
-func (iTcp InTCP) GetTag() string {
-	if iTcp.InputTag == "" {
-		return "*"
+func (t *TCP) Start(parentCtx context.Context, output chan<- global.Event) error {
+	var err error
+	addr := fmt.Sprintf("%s:%d", t.listenAddr, t.port)
+	t.ctx, t.cancel = context.WithCancel(parentCtx)
+
+	t.listener, err = net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("couldn't start tcp input: %w", err)
 	}
-	return iTcp.InputTag
-}
 
-func (iTcp InTCP) Start() {
+	slog.Info("Starting TCP input",
+		"addr", addr,
+		"buffer_size", t.bufferSize,
+		"timeout", t.timeout,
+		"max_connections", maxConnectionCountTCP,
+	)
+
+	t.wg.Add(1)
 	go func() {
-		var err error
-		iTcp.listener, err = net.Listen("tcp", iTcp.addr)
-		if err != nil {
-			slog.Error("Couldn't start tcp input", "error", err)
-			return
-		}
-
-		slog.Info("Starting TCP input",
-			"addr", iTcp.addr,
-			"buffer_size", iTcp.BufferSize,
-			"timeout", iTcp.ConnectionTimeout,
-			"max_connections", maxConnectionCountTCP,
-		)
-
+		defer t.wg.Done()
 		for {
 			select {
-			case <-iTcp.ctx.Done():
+			case <-t.ctx.Done():
 				return
 			default:
-				conn, err := iTcp.listener.Accept()
+				conn, err := t.listener.Accept()
 				if err != nil {
-					if iTcp.ctx.Err() != nil {
+					if t.ctx.Err() != nil {
 						slog.Warn("Error accepting TCP input connection", "error", err)
 					}
 					continue
 				}
 
-				if !iTcp.incrementConnCount() {
+				if !t.incrementConnCount() {
 					slog.Warn("Maximum connection limit reached, rejecting connection",
 						"remote_addr", conn.RemoteAddr().String())
 					conn.Close()
@@ -238,37 +285,35 @@ func (iTcp InTCP) Start() {
 				}
 
 				cs := newConnState(conn)
-				iTcp.activeConns.Store(conn, struct{}{})
-				iTcp.wg.Add(1)
-				go iTcp.handleConnection(cs)
+				t.activeConns.Store(cs, struct{}{})
+				t.wg.Add(1)
+				go t.handleConnection(cs, output)
 			}
 		}
 	}()
+
+	return nil
 }
 
-func (iTcp InTCP) Read() <-chan util.Event {
-	return iTcp.sendCh
-}
-
-func (iTcp InTCP) Stop() {
-	if iTcp.ctx != nil {
-		iTcp.cancel()
+func (t *TCP) Exit() error {
+	slog.Info("Stopping TCP input")
+	if t.cancel != nil {
+		t.cancel()
 	}
 
-	if iTcp.listener != nil {
-		if err := iTcp.listener.Close(); err != nil {
+	if t.listener != nil {
+		if err := t.listener.Close(); err != nil {
 			slog.Error("Error closing listener", "error", err)
 		}
 	}
 
-	// Close all active connections immediately
-	iTcp.activeConns.Range(func(key, value interface{}) bool {
-		if conn, ok := key.(net.Conn); ok {
-			conn.Close()
+	t.activeConns.Range(func(key, value interface{}) bool {
+		if cs, ok := key.(*connState); ok {
+			cs.Close()
 		}
 		return true
 	})
 
-	iTcp.wg.Wait()
-	close(iTcp.sendCh)
+	t.wg.Wait()
+	return nil
 }

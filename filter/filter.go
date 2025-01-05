@@ -1,10 +1,9 @@
 package filter
 
-import "log-forwarder-client/util"
+import "log-forwarder/global"
 
-var AvailableFilters []Filter
-
-type Filter interface {
-	GetMatch() string
-	Apply(*util.Event) bool
+type Plugin interface {
+	global.Plugin
+	Process(record *global.Event) (*global.Event, error)
+	MatchTag(inputTag string) bool
 }

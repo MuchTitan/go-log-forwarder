@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/global"
 	"time"
 )
 

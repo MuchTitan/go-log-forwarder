@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log-forwarder/global"
-	"log-forwarder/util"
+	"github.com/MuchTitan/go-log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/util"
 	"regexp"
 )
 

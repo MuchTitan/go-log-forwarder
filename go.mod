@@ -1,4 +1,4 @@
-module log-forwarder
+module github.com/MuchTitan/go-log-forwarder
 
 go 1.23.2
 

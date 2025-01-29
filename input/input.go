@@ -2,7 +2,7 @@ package input
 
 import (
 	"context"
-	"log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/global"
 	"os"
 )
 

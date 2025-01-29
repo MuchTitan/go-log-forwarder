@@ -1,6 +1,6 @@
 package output
 
-import "log-forwarder/global"
+import "github.com/MuchTitan/go-log-forwarder/global"
 
 type Plugin interface {
 	global.Plugin

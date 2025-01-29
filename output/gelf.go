@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log-forwarder/global"
-	"log-forwarder/util"
+	"github.com/MuchTitan/go-log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/util"
 	"log/slog"
 
 	"gopkg.in/Graylog2/go-gelf.v2/gelf"
@@ -98,7 +98,7 @@ func (g *GELF) Write(events []global.Event) error {
 
 		msg := gelf.Message{
 			Version:  "1.1",
-			Host:     "log-forwarder",
+			Host:     "github.com/MuchTitan/go-log-forwarder",
 			Short:    jsonData,
 			TimeUnix: float64(event.Timestamp.Unix()),
 			Level:    gelf.LOG_INFO, // Info level by default

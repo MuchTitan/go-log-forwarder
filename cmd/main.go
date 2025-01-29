@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log-forwarder/config"
+	"github.com/MuchTitan/go-log-forwarder/config"
 	"log/slog"
 	"os"
 	"os/signal"

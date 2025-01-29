@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log-forwarder/global"
-	"log-forwarder/util"
+	"github.com/MuchTitan/go-log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/util"
 	"net/http"
 	"os"
 	"time"
@@ -128,7 +128,7 @@ func (s *Splunk) newSplunkEvent(event global.Event) splunkEvent {
 		Index:      s.index,
 		Source:     s.eventHost,
 		Sourcetype: s.sourceType,
-		Host:       "log-forwarder",
+		Host:       "github.com/MuchTitan/go-log-forwarder",
 		Time:       event.Timestamp.Unix(),
 	}
 

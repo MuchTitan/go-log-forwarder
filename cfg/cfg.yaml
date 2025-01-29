@@ -1,5 +1,5 @@
 System:
-  logLevel: DEBUG
+  logLevel: INFO
   logFile: "./forwarder.log"
 
 Inputs:
@@ -11,10 +11,7 @@ Parsers:
   - Type: "json"
 
 Outputs:
-  - Type: "splunk"
+  - Type: stdout
     Match: "*"
-    Host: "localhost"
-    Port: 8088
-    Token: "${Splunk_Token}"
-    VerifyTLS: false
-    EventIndex: "test"
+    Format: plain
+    Colors: true

@@ -7,11 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/MuchTitan/go-log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/util"
 )
 
 type Splunk struct {

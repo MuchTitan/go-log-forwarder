@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+
 	"github.com/MuchTitan/go-log-forwarder/global"
 	"github.com/MuchTitan/go-log-forwarder/util"
-	"regexp"
 )
 
 type Grep struct {
@@ -36,7 +37,7 @@ func (g *Grep) Init(config map[string]interface{}) error {
 		g.name = "grep"
 	}
 
-	g.match = util.MustString(config["Tag"])
+	g.match = util.MustString(config["Match"])
 	if g.match == "" {
 		g.match = "*"
 	}

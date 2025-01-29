@@ -1,8 +1,9 @@
 package parser
 
 import (
-	"github.com/MuchTitan/go-log-forwarder/global"
 	"time"
+
+	"github.com/MuchTitan/go-log-forwarder/global"
 )
 
 type Plugin interface {
@@ -11,7 +12,7 @@ type Plugin interface {
 }
 
 func ExtractTime(event *global.Event, timeKey, timeFormat string) {
-	if timeValue, exists := event.ParsedData[timeKey].(string); exists {
+	if timeValue, ok := event.ParsedData[timeKey].(string); ok {
 		time, err := time.Parse(timeFormat, timeValue)
 		if err != nil {
 			return

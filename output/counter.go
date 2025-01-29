@@ -3,9 +3,10 @@ package output
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
+
 	"github.com/MuchTitan/go-log-forwarder/global"
 	"github.com/MuchTitan/go-log-forwarder/util"
-	"sync"
 )
 
 type Counter struct {

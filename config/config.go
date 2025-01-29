@@ -3,14 +3,15 @@ package config
 import (
 	"fmt"
 	"io"
+	"log/slog"
+	"os"
+	"strings"
+
 	"github.com/MuchTitan/go-log-forwarder/engine"
 	"github.com/MuchTitan/go-log-forwarder/filter"
 	"github.com/MuchTitan/go-log-forwarder/input"
 	"github.com/MuchTitan/go-log-forwarder/output"
 	"github.com/MuchTitan/go-log-forwarder/parser"
-	"log/slog"
-	"os"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -151,7 +152,7 @@ func (e *PluginEngine) initializePlugins() error {
 func (e *PluginEngine) initializeInput(config map[string]interface{}) error {
 	var inputObject input.Plugin
 
-	switch config["Type"] {
+	switch strings.ToLower(config["Type"].(string)) {
 	case "tail":
 		inputObject = &input.Tail{}
 	case "tcp":
@@ -159,7 +160,7 @@ func (e *PluginEngine) initializeInput(config map[string]interface{}) error {
 	case "http":
 		inputObject = &input.InHTTP{}
 	default:
-		return fmt.Errorf("unknown input type: %s", config["type"])
+		return fmt.Errorf("unknown input type: %s", config["Type"])
 	}
 
 	if err := inputObject.Init(config); err != nil {
@@ -173,13 +174,13 @@ func (e *PluginEngine) initializeInput(config map[string]interface{}) error {
 func (e *PluginEngine) initializeParser(config map[string]interface{}) error {
 	var parserObject parser.Plugin
 
-	switch config["Type"] {
+	switch strings.ToLower(config["Type"].(string)) {
 	case "json":
 		parserObject = &parser.Json{}
 	case "regex":
 		parserObject = &parser.Regex{}
 	default:
-		return fmt.Errorf("unknown filter type: %s", config["type"])
+		return fmt.Errorf("unknown filter type: %s", config["Type"])
 	}
 
 	if err := parserObject.Init(config); err != nil {
@@ -193,11 +194,11 @@ func (e *PluginEngine) initializeParser(config map[string]interface{}) error {
 func (e *PluginEngine) initializeFilter(config map[string]interface{}) error {
 	var filterObject filter.Plugin
 
-	switch config["Type"] {
+	switch strings.ToLower(config["Type"].(string)) {
 	case "grep":
 		filterObject = &filter.Grep{}
 	default:
-		return fmt.Errorf("unknown filter type: %s", config["type"])
+		return fmt.Errorf("unknown filter type: %s", config["Type"])
 	}
 
 	if err := filterObject.Init(config); err != nil {
@@ -211,7 +212,7 @@ func (e *PluginEngine) initializeFilter(config map[string]interface{}) error {
 func (e *PluginEngine) initializeOutput(config map[string]interface{}) error {
 	var outputObject output.Plugin
 
-	switch config["Type"] {
+	switch strings.ToLower(config["Type"].(string)) {
 	case "stdout":
 		outputObject = &output.Stdout{}
 	case "splunk":
@@ -221,7 +222,7 @@ func (e *PluginEngine) initializeOutput(config map[string]interface{}) error {
 	case "gelf":
 		outputObject = &output.GELF{}
 	default:
-		return fmt.Errorf("unknown output type: %s", config["type"])
+		return fmt.Errorf("unknown output type: %s", config["Type"])
 	}
 
 	if err := outputObject.Init(config); err != nil {

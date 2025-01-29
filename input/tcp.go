@@ -5,12 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
 	"log/slog"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/MuchTitan/go-log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/util"
 )
 
 const (

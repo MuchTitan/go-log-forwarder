@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+
 	"github.com/MuchTitan/go-log-forwarder/global"
 	"github.com/MuchTitan/go-log-forwarder/util"
-	"log/slog"
 
 	"gopkg.in/Graylog2/go-gelf.v2/gelf"
 )

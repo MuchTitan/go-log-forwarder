@@ -5,12 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/MuchTitan/go-log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/util"
 )
 
 type Stdout struct {
@@ -45,7 +46,7 @@ func (s *Stdout) Init(config map[string]interface{}) error {
 	}
 
 	// Configure JSON indentation
-	if indent, exists := config["json_indent"]; exists {
+	if indent, exists := config["Json_indent"]; exists {
 		var ok bool
 		if s.jsonIndent, ok = indent.(bool); !ok {
 			return errors.New("cant convert json indent parameter to bool")
@@ -53,7 +54,7 @@ func (s *Stdout) Init(config map[string]interface{}) error {
 	}
 
 	// Configure colors
-	if colors, exists := config["colors"]; exists {
+	if colors, exists := config["Colors"]; exists {
 		var ok bool
 		if s.colors, ok = colors.(bool); !ok {
 			return errors.New("cant convert colors parameter to bool")
@@ -61,7 +62,7 @@ func (s *Stdout) Init(config map[string]interface{}) error {
 	}
 
 	// Parse custom template if provided
-	if templateTmp, exists := config["template"]; exists && templateTmp != "" {
+	if templateTmp, exists := config["Template"]; exists && templateTmp != "" {
 		templateStr := util.MustString(templateTmp)
 		tmpl, err := template.New("output").Parse(templateStr)
 		if err != nil {

@@ -3,9 +3,10 @@ package parser
 import (
 	"encoding/json"
 	"fmt"
+	"time"
+
 	"github.com/MuchTitan/go-log-forwarder/global"
 	"github.com/MuchTitan/go-log-forwarder/util"
-	"time"
 )
 
 type Json struct {

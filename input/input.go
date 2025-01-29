@@ -2,8 +2,9 @@ package input
 
 import (
 	"context"
-	"github.com/MuchTitan/go-log-forwarder/global"
 	"os"
+
+	"github.com/MuchTitan/go-log-forwarder/global"
 )
 
 type Plugin interface {

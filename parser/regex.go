@@ -2,10 +2,11 @@ package parser
 
 import (
 	"fmt"
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
 	"regexp"
 	"time"
+
+	"github.com/MuchTitan/go-log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/util"
 )
 
 type Regex struct {

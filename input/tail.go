@@ -5,8 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,6 +12,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/MuchTitan/go-log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/util"
 )
 
 type Tail struct {
@@ -58,13 +59,6 @@ func (t *Tail) Tag() string {
 	return t.tag
 }
 
-func getFileID(info os.FileInfo) (uint64, error) {
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-		return stat.Ino, nil
-	}
-	return 0, fmt.Errorf("failed to get file inode")
-}
-
 func (t *Tail) Init(config map[string]interface{}) error {
 	t.glob = util.MustString(config["Glob"])
 	if t.glob == "" {
@@ -87,6 +81,13 @@ func (t *Tail) Init(config map[string]interface{}) error {
 	t.wg = sync.WaitGroup{}
 	t.mu = sync.Mutex{}
 	return nil
+}
+
+func getFileID(info os.FileInfo) (uint64, error) {
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		return stat.Ino, nil
+	}
+	return 0, fmt.Errorf("failed to get file inode")
 }
 
 func (t *Tail) Start(parentCtx context.Context, output chan<- global.Event) error {

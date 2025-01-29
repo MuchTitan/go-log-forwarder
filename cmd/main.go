@@ -1,11 +1,12 @@
 package main
 
 import (
-	"github.com/MuchTitan/go-log-forwarder/config"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/MuchTitan/go-log-forwarder/config"
 )
 
 func main() {

@@ -6,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
 	"log/slog"
 	"net/http"
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/MuchTitan/go-log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/util"
 )
 
 const DefaultHttpBufferSize int64 = 5 << 20 // 5MB

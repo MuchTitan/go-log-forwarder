@@ -1,10 +1,9 @@
 package output
 
-import "log-forwarder-client/util"
+import "github.com/MuchTitan/go-log-forwarder/global"
 
-var AvailableOutputs []Output
-
-type Output interface {
-	GetMatch() string
-	Write(util.Event) error
+type Plugin interface {
+	global.Plugin
+	Write(records []global.Event) error
+	Flush() error
 }

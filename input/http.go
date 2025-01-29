@@ -2,66 +2,92 @@ package input
 
 import (
 	"bytes"
-	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"log-forwarder-client/util"
 	"log/slog"
 	"net/http"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/mitchellh/mapstructure"
+	"github.com/MuchTitan/go-log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/util"
 )
 
 const DefaultHttpBufferSize int64 = 5 << 20 // 5MB
 
 type InHTTP struct {
-	sendCh     chan util.Event
+	name       string
+	tag        string
+	addr       string
+	listenAddr string
+	inputTag   string
+	port       int
+	bufferSize int64
+	verifyTLS  bool
 	server     *http.Server
 	wg         *sync.WaitGroup
-	addr       string
-	ListenAddr string `mapstructure:"Listen"`
-	InputTag   string `mapstructure:"Tag"`
-	Port       int    `mapstructure:"Port"`
-	BufferSize int64  `mapstructure:"BufferSize"`
-	VerifyTLS  bool   `mapstructure:"VerifyTLS"`
+	ctx        context.Context
+	outputCh   chan<- global.Event
 }
 
-func ParseHttp(input map[string]interface{}) (InHTTP, error) {
-	httpObject := InHTTP{}
-	err := mapstructure.Decode(input, &httpObject)
-	if err != nil {
-		return httpObject, err
+func (h *InHTTP) Name() string {
+	return h.name
+}
+
+func (h *InHTTP) Tag() string {
+	return h.tag
+}
+
+func (h *InHTTP) Init(config map[string]interface{}) error {
+	h.name = util.MustString(config["Name"])
+	if h.name == "" {
+		h.name = "http"
 	}
 
-	httpObject.ListenAddr = cmp.Or(httpObject.ListenAddr, "0.0.0.0")
-	httpObject.Port = cmp.Or(httpObject.Port, 8080)
-	httpObject.BufferSize = cmp.Or(httpObject.BufferSize, DefaultHttpBufferSize)
+	h.tag = util.MustString(config["Tag"])
+	if h.tag == "" {
+		h.tag = "http"
+	}
 
-	httpObject.addr = fmt.Sprintf("%s:%d", httpObject.ListenAddr, httpObject.Port)
-	httpObject.server = &http.Server{
-		Addr:        httpObject.addr,
+	h.listenAddr = util.MustString(config["Listen"])
+	if h.listenAddr == "" {
+		h.listenAddr = "0.0.0.0"
+	}
+
+	if port, exists := config["Port"]; exists {
+		var ok bool
+		if h.port, ok = port.(int); !ok {
+			return errors.New("cant convert port to int")
+		}
+	} else {
+		h.port = 8080
+	}
+
+	if bufferSize, exists := config["BufferSize"]; exists {
+		var ok bool
+		if h.bufferSize, ok = bufferSize.(int64); !ok {
+			return errors.New("cant convert bufferSize to int")
+		}
+	}
+	if h.bufferSize == 0 {
+		h.bufferSize = DefaultHttpBufferSize
+	}
+	h.addr = fmt.Sprintf("%s:%d", h.listenAddr, h.port)
+	h.server = &http.Server{
+		Addr:        h.addr,
 		Handler:     http.DefaultServeMux,
 		ReadTimeout: time.Second * 30,
 	}
-	httpObject.wg = &sync.WaitGroup{}
 
-	httpObject.sendCh = make(chan util.Event)
+	h.wg = &sync.WaitGroup{}
 
-	return httpObject, nil
+	return nil
 }
 
-func (h InHTTP) GetTag() string {
-	if h.InputTag == "" {
-		return "*"
-	}
-	return h.InputTag
-}
-
-func (h InHTTP) handleReq(w http.ResponseWriter, r *http.Request) {
+func (h *InHTTP) handleReq(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -69,7 +95,7 @@ func (h InHTTP) handleReq(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check Content-Length header
-	if r.ContentLength > h.BufferSize {
+	if r.ContentLength > h.bufferSize {
 		http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
@@ -81,21 +107,22 @@ func (h InHTTP) handleReq(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logLines := make(chan util.Event, 1000)
+	logLines := make(chan global.Event, 1000)
+	defer close(logLines)
 
 	h.wg.Add(1)
 
 	go func() {
 		defer h.wg.Done()
 		for event := range logLines {
-			h.sendCh <- event
+			h.outputCh <- event
 		}
 	}()
 
 	linenumber := 0
 
 	lines := bytes.Split(body, []byte{'\n'})
-	currTime := time.Now().Unix()
+	currTime := time.Now()
 
 	for _, line := range lines {
 		line = bytes.TrimSuffix(line, []byte{'\r'})
@@ -104,38 +131,44 @@ func (h InHTTP) handleReq(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		linenumber++
-		logLines <- util.Event{
-			RawData:     line,
-			Time:        currTime,
-			InputSource: "http",
-			InputTag:    h.GetTag(),
+		event := global.Event{
+			RawData:   string(line),
+			Timestamp: currTime,
+			Metadata: global.Metadata{
+				Source:  r.RemoteAddr,
+				LineNum: linenumber,
+			},
 		}
+
+		AddMetadata(&event, h)
+		logLines <- event
 	}
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Successfully processed %d lines", linenumber)
 }
 
-func (h InHTTP) Start() {
+func (h *InHTTP) Start(ctx context.Context, output chan<- global.Event) error {
+	h.outputCh = output
+	h.ctx = ctx
 	http.HandleFunc("/", h.handleReq)
 	go func() {
-		slog.Info("Starting http input", "Addr", h.addr)
+		slog.Info("[HTTP] Starting", "Addr", h.addr)
 		if err := h.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("An error occured during the http input", "Addr", h.addr, "error", err)
+			slog.Error("[HTTP] An error occured during the http input", "addr", h.addr, "error", err)
 		}
 	}()
+	return nil
 }
 
-func (h InHTTP) Read() <-chan util.Event {
-	return h.sendCh
-}
-
-func (h InHTTP) Stop() {
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second*30)
+func (h *InHTTP) Exit() error {
+	slog.Info("[HTTP] Stopping")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second*60)
 	defer shutdownCancel()
 	if err := h.server.Shutdown(shutdownCtx); err != nil {
-		slog.Error("Error during http input server shutdown", "error", err)
+		slog.Error("[HTTP] error during http server shutdown", "error", err)
+		return err
 	}
 	h.wg.Wait()
-	close(h.sendCh)
+	return nil
 }

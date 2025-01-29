@@ -2,52 +2,58 @@ package parser
 
 import (
 	"encoding/json"
-	"log-forwarder-client/util"
+	"fmt"
+	"time"
 
-	"github.com/mitchellh/mapstructure"
+	"github.com/MuchTitan/go-log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/util"
 )
 
 type Json struct {
-	ParserMatch string `mapstructure:"Match"`
-	TimeKey     string `mapstructure:"TimeKey"`
-	TimeFormat  string `mapstructure:"TimeFormat"`
+	name       string
+	timeKey    string
+	timeFormat string
 }
 
-func ParseJson(input map[string]interface{}) (Json, error) {
-	jsonObject := Json{}
-	err := mapstructure.Decode(input, &jsonObject)
-	if err != nil {
-		return jsonObject, err
-	}
-	return jsonObject, nil
+func (j *Json) Name() string {
+	return j.name
 }
 
-func (j Json) Apply(data *util.Event) error {
-	var decodedData map[string]interface{}
-	err := json.Unmarshal(data.RawData, &decodedData)
-	if err != nil {
-		return err
+func (j *Json) Init(config map[string]interface{}) error {
+	j.name = util.MustString(config["Name"])
+	if j.name == "" {
+		j.name = "json"
 	}
 
-	data.ParsedData = decodedData
+	j.timeKey = util.MustString(config["TimeKey"])
 
-	data.ParsedData = util.MergeMaps(data.ParsedData, data.Metadata)
-
-	if j.TimeKey == "" || j.TimeFormat == "" {
-		return nil
-	}
-
-	err = ExtractTimeKey(j.TimeKey, j.TimeFormat, data)
-	if err != nil {
-		return err
+	j.timeFormat = util.MustString(config["TimeFormat"])
+	if j.timeFormat != "" {
+		_, err := time.Parse(j.timeFormat, time.Now().String())
+		if err != nil {
+			return fmt.Errorf("not a valid time format in Json Parser err: %w", err)
+		}
+	} else {
+		j.timeFormat = time.RFC3339
 	}
 
 	return nil
 }
 
-func (j Json) GetMatch() string {
-	if j.ParserMatch == "" {
-		return "*"
+func (j *Json) Process(event *global.Event) bool {
+	var parsedData map[string]interface{}
+	err := json.Unmarshal([]byte(event.RawData), &parsedData)
+	if err != nil {
+		return false
 	}
-	return j.ParserMatch
+	event.ParsedData = parsedData
+
+	if j.timeFormat != "" && j.timeKey != "" {
+		ExtractTime(event, j.timeKey, j.timeFormat)
+	}
+	return true
+}
+
+func (j *Json) Exit() error {
+	return nil
 }

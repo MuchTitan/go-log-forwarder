@@ -28,4 +28,7 @@ func main() {
 
 	slog.Info("[Engine] Stopping log forwarder")
 	engine.Stop()
+	if err := engine.DbManager.Close(); err != nil {
+		slog.Error("could not close the database", "error", err)
+	}
 }

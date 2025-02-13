@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -147,17 +148,22 @@ func (s *Splunk) newSplunkEvent(event global.Event) splunkEvent {
 }
 
 func (s *Splunk) Write(events []global.Event) error {
+	// Convert all events to splunkEvents first
+	splunkEvents := make([]splunkEvent, 0, len(events))
 	for _, event := range events {
 		splunkevent := s.newSplunkEvent(event)
 		if splunkevent.Event == nil {
-			fmt.Println(event)
+			continue
 		}
-		data, err := json.Marshal(splunkevent)
-		if err != nil {
-			return fmt.Errorf("failed to marshal event: %w", err)
-		}
-		s.buffer.Write(data)
+		splunkEvents = append(splunkEvents, splunkevent)
 	}
+
+	data, err := json.Marshal(splunkEvents)
+	if err != nil {
+		return fmt.Errorf("failed to marshal events: %w", err)
+	}
+
+	s.buffer.Write(data)
 
 	if s.buffer.Len() > 100 {
 		if err := s.Flush(); err != nil {
@@ -207,9 +213,15 @@ func (s *Splunk) Flush() error {
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		fmt.Println(tmp)
+		slog.Debug("splunk request", "req", map[string]interface{}{
+			"url":     req.URL.String(),
+			"method":  req.Method,
+			"headers": req.Header,
+			"body":    tmp,
+		})
 		return fmt.Errorf("splunk returned status: %s", res.Status)
 	}
+
 	return nil
 }
 

@@ -3,6 +3,7 @@ package input
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,27 +14,33 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/MuchTitan/go-log-forwarder/database"
 	"github.com/MuchTitan/go-log-forwarder/global"
 	"github.com/MuchTitan/go-log-forwarder/util"
 )
 
 type Tail struct {
-	name           string
-	glob           string
-	tag            string
-	fileEventCh    chan string
-	debounceTimers map[string]*time.Timer
-	state          map[string]*filestate
-	fileStats      map[string]fileInfo
-	wg             sync.WaitGroup
-	mu             sync.Mutex
-	ctx            context.Context
-	cancel         context.CancelFunc
+	name             string
+	glob             string
+	tag              string
+	cleanUpThreshold int
+	fileEventCh      chan string
+	fileStateCh      chan filestate
+	debounceTimers   map[string]*time.Timer
+	state            map[string]*filestate
+	fileStats        map[string]fileInfo
+	wg               sync.WaitGroup
+	mu               sync.Mutex
+	ctx              context.Context
+	cancel           context.CancelFunc
+	dbEnabled        bool
+	DbManager        *database.DBManager
 }
 
 type filestate struct {
 	name         string
 	offset       int64
+	inode        uint64
 	lastReadLine int
 }
 
@@ -41,14 +48,6 @@ type fileInfo struct {
 	modTime time.Time
 	size    int64
 	inode   uint64
-}
-
-func newFilestate(path string) *filestate {
-	return &filestate{
-		name:         path,
-		offset:       0,
-		lastReadLine: 0,
-	}
 }
 
 func (t *Tail) Name() string {
@@ -75,9 +74,23 @@ func (t *Tail) Init(config map[string]interface{}) error {
 		t.tag = "tail"
 	}
 
+	if tmpThreshold, ok := config["CleanUpThreshold"].(int); ok {
+		t.cleanUpThreshold = tmpThreshold
+	} else {
+		t.cleanUpThreshold = 3
+	}
+
+	if t.DbManager != nil {
+		t.dbEnabled = true
+		if err := t.createDBTables(); err != nil {
+			return err
+		}
+	}
+
 	t.state = make(map[string]*filestate)
 	t.debounceTimers = make(map[string]*time.Timer)
 	t.fileEventCh = make(chan string, 1000)
+	t.fileStateCh = make(chan filestate)
 	t.wg = sync.WaitGroup{}
 	t.mu = sync.Mutex{}
 	return nil
@@ -92,6 +105,10 @@ func getFileID(info os.FileInfo) (uint64, error) {
 
 func (t *Tail) Start(parentCtx context.Context, output chan<- global.Event) error {
 	t.wg.Add(1)
+	if t.dbEnabled {
+		t.wg.Add(1)
+		t.persistStates()
+	}
 	t.ctx, t.cancel = context.WithCancel(parentCtx)
 	go t.fileStatLoop(t.ctx)
 	slog.Info("[Tail] Starting", "glob", t.glob)
@@ -124,13 +141,19 @@ func (t *Tail) Exit() error {
 	}
 	t.wg.Wait()
 	close(t.fileEventCh)
+	close(t.fileStateCh)
+	deletedCount, err := t.cleanUpOldDbEntries()
+	if err != nil {
+		return err
+	}
+	slog.Info("cleaned old entries in tail_files db", "amount", deletedCount)
 	return nil
 }
 
 func (t *Tail) fileStatLoop(ctx context.Context) {
 	ticker := time.NewTicker(time.Millisecond * 100)
-	defer ticker.Stop()
 	defer t.wg.Done()
+	defer ticker.Stop()
 
 	t.fileStats = make(map[string]fileInfo)
 
@@ -280,10 +303,26 @@ func (t *Tail) readFile(path string, output chan<- global.Event) error {
 		return fmt.Errorf("error getting file stats: %v", err)
 	}
 
+	sendFileState := func(state filestate) {
+		if t.dbEnabled {
+			t.fileStateCh <- state
+		}
+	}
+
 	t.mu.Lock()
 	var currentFileState *filestate
 	if state, exists := t.state[path]; !exists {
-		currentFileState = &filestate{name: path}
+		inode, err := getFileID(fileInfo)
+		if err != nil {
+			slog.Error("error getting inode", "file", path)
+		}
+		dbState, err := t.getFileStateFromDB(path, inode)
+		if err != nil {
+			currentFileState = &filestate{name: path, inode: inode}
+			slog.Debug("did not find a saved file state in db", "path", path, "inode", inode, "error", err)
+		} else {
+			currentFileState = &dbState
+		}
 	} else {
 		currentFileState = state
 	}
@@ -292,6 +331,10 @@ func (t *Tail) readFile(path string, output chan<- global.Event) error {
 	// If we're at EOF and the file has been truncated, reset to beginning
 	if currentFileState.offset > fileInfo.Size() {
 		currentFileState.offset = 0
+		currentFileState.lastReadLine = 0
+		if err := t.deleteFileFromDB(currentFileState.name, currentFileState.inode); err != nil {
+			slog.Error("error during file state deleting", "error", err)
+		}
 	}
 
 	// Seek to the saved offset
@@ -305,6 +348,7 @@ func (t *Tail) readFile(path string, output chan<- global.Event) error {
 			t.mu.Lock()
 			currentFileState.offset = currOffset
 			t.state[path] = currentFileState
+			sendFileState(*t.state[path])
 			t.mu.Unlock()
 			return nil
 		default:
@@ -317,6 +361,7 @@ func (t *Tail) readFile(path string, output chan<- global.Event) error {
 				t.mu.Lock()
 				currentFileState.offset = currOffset
 				t.state[path] = currentFileState
+				sendFileState(*t.state[path])
 				t.mu.Unlock()
 				return nil
 			}
@@ -346,4 +391,110 @@ func (t *Tail) readFile(path string, output chan<- global.Event) error {
 			return nil
 		}
 	}
+}
+
+func (t *Tail) createDBTables() error {
+	query := `CREATE TABLE IF NOT EXISTS tail_files (
+        path TEXT NOT NULL,
+        offset INTEGER NOT NULL,
+        lastReadLine INTEGER NOT NULL,
+        inodenumber INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (path, inodenumber)
+    )`
+	_, err := t.DbManager.ExecuteWrite(query)
+	if err != nil {
+		return fmt.Errorf("could not create db table tail_files: %v", err)
+	}
+	return nil
+}
+
+func (t *Tail) persistStates() {
+	ticker := time.NewTicker(time.Millisecond * 100)
+	var updates []filestate
+	persistStates := func(tx *sql.Tx) error {
+		if len(updates) == 0 {
+			return nil
+		}
+
+		stmt, err := tx.Prepare(`
+            INSERT OR REPLACE INTO tail_files (path, offset, lastReadLine, inodenumber, updated_at) VALUES ($1,$2,$3,$4,$5)
+			`)
+		if err != nil {
+			slog.Error("Failed to prepare statement", "error", err)
+			tx.Rollback()
+		}
+
+		for _, update := range updates {
+			_, err := stmt.Exec(
+				update.name,
+				update.offset,
+				update.lastReadLine,
+				update.inode,
+				time.Now(),
+			)
+			if err != nil {
+				slog.Error("Failed to execute statement", "error", err)
+				continue
+			}
+		}
+
+		stmt.Close()
+		err = tx.Commit()
+		if err != nil {
+			slog.Error("Failed to commit transaction", "error", err)
+			tx.Rollback()
+		}
+
+		updates = updates[:0] // Clear the slice
+		return nil
+	}
+
+	go func() {
+		defer t.wg.Done()
+		defer ticker.Stop()
+		for {
+			select {
+			case <-t.ctx.Done():
+				t.DbManager.ExecuteWriteTx(persistStates)
+				return
+			case state := <-t.fileStateCh:
+				updates = append(updates, state)
+			case <-ticker.C:
+				t.DbManager.ExecuteWriteTx(persistStates)
+			}
+		}
+	}()
+}
+
+func (t *Tail) cleanUpOldDbEntries() (int64, error) {
+	cutoffDate := time.Now().AddDate(0, 0, -t.cleanUpThreshold).Format("2006-01-02 15:04:05")
+	query := "DELETE FROM tail_files WHERE updated_at < datetime($1)"
+	res, err := t.DbManager.ExecuteWrite(query, cutoffDate)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+func (t *Tail) deleteFileFromDB(path string, inode uint64) error {
+	query := `DELETE FROM tail_files WHERE path = $1 AND inodenumber = $2`
+	_, err := t.DbManager.ExecuteWrite(query, path, inode)
+	if err != nil {
+		return fmt.Errorf("could not delete file entry from tail_files: %v", err)
+	}
+
+	return nil
+}
+
+func (t *Tail) getFileStateFromDB(path string, inode uint64) (filestate, error) {
+	query := `SELECT path, offset, lastReadLine, inodenumber from tail_files WHERE path = $1 AND inodenumber = $2`
+	row := t.DbManager.QueryRow(query, path, inode)
+	currentState := filestate{}
+	err := row.Scan(&currentState.name, &currentState.offset, &currentState.lastReadLine, &currentState.inode)
+	if err != nil {
+		return filestate{}, fmt.Errorf("could not parse row into struct: %v", err)
+	}
+	return currentState, nil
 }

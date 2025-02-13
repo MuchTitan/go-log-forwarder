@@ -1,6 +1,7 @@
 System:
   logLevel: INFO
   logFile: "./forwarder.log"
+  dbFile: "state.db"
 
 Inputs:
   - Type: "tail"
@@ -11,7 +12,10 @@ Parsers:
   - Type: "json"
 
 Outputs:
-  - Type: stdout
+  - Type: "splunk"
     Match: "*"
-    Format: plain
-    Colors: true
+    Host: "localhost"
+    Port: 8088
+    Token: "${Splunk_Token}"
+    VerifyTLS: false
+    EventIndex: "test"

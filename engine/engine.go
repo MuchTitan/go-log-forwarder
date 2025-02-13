@@ -2,14 +2,15 @@ package engine
 
 import (
 	"context"
+	"log/slog"
+	"sync"
+	"time"
+
 	"github.com/MuchTitan/go-log-forwarder/filter"
 	"github.com/MuchTitan/go-log-forwarder/global"
 	"github.com/MuchTitan/go-log-forwarder/input"
 	"github.com/MuchTitan/go-log-forwarder/output"
 	"github.com/MuchTitan/go-log-forwarder/parser"
-	"log/slog"
-	"sync"
-	"time"
 )
 
 type Engine struct {

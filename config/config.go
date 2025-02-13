@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/MuchTitan/go-log-forwarder/database"
 	"github.com/MuchTitan/go-log-forwarder/engine"
 	"github.com/MuchTitan/go-log-forwarder/filter"
 	"github.com/MuchTitan/go-log-forwarder/input"
@@ -29,6 +30,7 @@ type Config struct {
 type SystemConfig struct {
 	LogLevel string `yaml:"logLevel"`
 	LogFile  string `yaml:"logFile"`
+	DBFile   string `yaml:"dbFile"`
 }
 
 func (c *SystemConfig) GetLogLevel() int {
@@ -48,7 +50,8 @@ func (c *SystemConfig) GetLogLevel() int {
 // Engine is extended to include configuration
 type PluginEngine struct {
 	*engine.Engine
-	config Config
+	config    Config
+	DbManager *database.DBManager
 }
 
 // NewPluginEngine creates a new engine with configuration
@@ -60,6 +63,12 @@ func NewPluginEngine(configPath string) (*PluginEngine, error) {
 	if err := engine.loadConfig(configPath); err != nil {
 		return nil, err
 	}
+
+	dbManager, err := database.NewDBManager(engine.config.System.DBFile)
+	if err != nil {
+		return nil, err
+	}
+	engine.DbManager = dbManager
 
 	if err := engine.initializePlugins(); err != nil {
 		return nil, err
@@ -75,7 +84,7 @@ func (e *PluginEngine) loadConfig(path string) error {
 	}
 
 	// Replace environment variables
-	expandedData := os.Expand(string(data), os.Getenv)
+	expandedData := os.ExpandEnv(string(data))
 
 	if err := yaml.Unmarshal([]byte(expandedData), &e.config); err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
@@ -154,7 +163,9 @@ func (e *PluginEngine) initializeInput(config map[string]interface{}) error {
 
 	switch strings.ToLower(config["Type"].(string)) {
 	case "tail":
-		inputObject = &input.Tail{}
+		inputObject = &input.Tail{
+			DbManager: e.DbManager,
+		}
 	case "tcp":
 		inputObject = &input.TCP{}
 	case "http":

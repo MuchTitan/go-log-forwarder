@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/MuchTitan/go-log-forwarder/config"
+	"github.com/MuchTitan/go-log-forwarder/internal/config"
 )
 
 func main() {

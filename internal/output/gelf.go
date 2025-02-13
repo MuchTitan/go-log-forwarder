@@ -7,8 +7,8 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
+	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/util"
 
 	"gopkg.in/Graylog2/go-gelf.v2/gelf"
 )
@@ -87,7 +87,7 @@ func (g *GELF) setupWriter() error {
 	return nil
 }
 
-func (g *GELF) Write(events []global.Event) error {
+func (g *GELF) Write(events []internal.Event) error {
 	for _, event := range events {
 		var jsonData string
 		if event.ParsedData != nil {

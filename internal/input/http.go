@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
+	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/util"
 )
 
 const DefaultHttpBufferSize int64 = 5 << 20 // 5MB
@@ -30,7 +30,7 @@ type InHTTP struct {
 	server     *http.Server
 	wg         *sync.WaitGroup
 	ctx        context.Context
-	outputCh   chan<- global.Event
+	outputCh   chan<- internal.Event
 }
 
 func (h *InHTTP) Name() string {
@@ -107,7 +107,7 @@ func (h *InHTTP) handleReq(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logLines := make(chan global.Event, 1000)
+	logLines := make(chan internal.Event, 1000)
 	defer close(logLines)
 
 	h.wg.Add(1)
@@ -131,10 +131,10 @@ func (h *InHTTP) handleReq(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		linenumber++
-		event := global.Event{
+		event := internal.Event{
 			RawData:   string(line),
 			Timestamp: currTime,
-			Metadata: global.Metadata{
+			Metadata: internal.Metadata{
 				Source:  r.RemoteAddr,
 				LineNum: linenumber,
 			},
@@ -148,7 +148,7 @@ func (h *InHTTP) handleReq(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Successfully processed %d lines", linenumber)
 }
 
-func (h *InHTTP) Start(ctx context.Context, output chan<- global.Event) error {
+func (h *InHTTP) Start(ctx context.Context, output chan<- internal.Event) error {
 	h.outputCh = output
 	h.ctx = ctx
 	http.HandleFunc("/", h.handleReq)

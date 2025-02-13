@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
+	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/util"
 )
 
 type Regex struct {
@@ -50,7 +50,7 @@ func (r *Regex) Init(config map[string]interface{}) error {
 	return nil
 }
 
-func (r *Regex) Process(event *global.Event) bool {
+func (r *Regex) Process(event *internal.Event) bool {
 	matches := r.re.FindStringSubmatch(event.RawData)
 	if matches == nil {
 		return false

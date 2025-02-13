@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
+	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/util"
 )
 
 const (
@@ -141,7 +141,7 @@ func (t *TCP) decrementConnCount() {
 	}
 }
 
-func (t *TCP) handleConnection(cs *connState, output chan<- global.Event) {
+func (t *TCP) handleConnection(cs *connState, output chan<- internal.Event) {
 	defer t.wg.Done()
 	defer cs.Close()
 	defer t.decrementConnCount()
@@ -223,10 +223,10 @@ func (t *TCP) handleConnection(cs *connState, output chan<- global.Event) {
 
 			if n > 0 {
 				linenumber++
-				event := global.Event{
+				event := internal.Event{
 					Timestamp: time.Now(),
 					RawData:   string(buffer[:n]),
-					Metadata: global.Metadata{
+					Metadata: internal.Metadata{
 						Source:  remoteAddr,
 						LineNum: linenumber,
 					},
@@ -245,7 +245,7 @@ func (t *TCP) handleConnection(cs *connState, output chan<- global.Event) {
 	}
 }
 
-func (t *TCP) Start(parentCtx context.Context, output chan<- global.Event) error {
+func (t *TCP) Start(parentCtx context.Context, output chan<- internal.Event) error {
 	var err error
 	addr := fmt.Sprintf("%s:%d", t.listenAddr, t.port)
 	t.ctx, t.cancel = context.WithCancel(parentCtx)

@@ -14,9 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/MuchTitan/go-log-forwarder/database"
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
+	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/database"
+	"github.com/MuchTitan/go-log-forwarder/internal/util"
 )
 
 type Tail struct {
@@ -103,7 +103,7 @@ func getFileID(info os.FileInfo) (uint64, error) {
 	return 0, fmt.Errorf("failed to get file inode")
 }
 
-func (t *Tail) Start(parentCtx context.Context, output chan<- global.Event) error {
+func (t *Tail) Start(parentCtx context.Context, output chan<- internal.Event) error {
 	t.wg.Add(1)
 	if t.dbEnabled {
 		t.wg.Add(1)
@@ -252,7 +252,7 @@ func (t *Tail) fileStatLoop(ctx context.Context) {
 	}
 }
 
-func (t *Tail) readFileWithDebounce(path string, output chan<- global.Event) {
+func (t *Tail) readFileWithDebounce(path string, output chan<- internal.Event) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -282,7 +282,7 @@ func (t *Tail) readFileWithDebounce(path string, output chan<- global.Event) {
 	t.debounceTimers[path] = timer
 }
 
-func (t *Tail) readFile(path string, output chan<- global.Event) error {
+func (t *Tail) readFile(path string, output chan<- internal.Event) error {
 	defer t.wg.Done()
 
 	select {
@@ -375,10 +375,10 @@ func (t *Tail) readFile(path string, output chan<- global.Event) error {
 			continue
 		}
 
-		event := global.Event{
+		event := internal.Event{
 			Timestamp: time.Now(),
 			RawData:   line,
-			Metadata: global.Metadata{
+			Metadata: internal.Metadata{
 				Source:  path,
 				LineNum: currentFileState.lastReadLine,
 			},

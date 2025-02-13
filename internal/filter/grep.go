@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
+	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/util"
 )
 
 type Grep struct {
@@ -63,7 +63,7 @@ func (g *Grep) Init(config map[string]interface{}) error {
 	return nil
 }
 
-func (g *Grep) Process(data *global.Event) (*global.Event, error) {
+func (g *Grep) Process(data *internal.Event) (*internal.Event, error) {
 	matches := 0
 	// Check each pattern
 	for _, regexString := range g.regex {

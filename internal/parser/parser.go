@@ -3,15 +3,15 @@ package parser
 import (
 	"time"
 
-	"github.com/MuchTitan/go-log-forwarder/global"
+	"github.com/MuchTitan/go-log-forwarder/internal"
 )
 
 type Plugin interface {
-	global.Plugin
-	Process(record *global.Event) bool
+	internal.Plugin
+	Process(record *internal.Event) bool
 }
 
-func ExtractTime(event *global.Event, timeKey, timeFormat string) {
+func ExtractTime(event *internal.Event, timeKey, timeFormat string) {
 	if timeValue, ok := event.ParsedData[timeKey].(string); ok {
 		time, err := time.Parse(timeFormat, timeValue)
 		if err != nil {

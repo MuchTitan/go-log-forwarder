@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
+	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/util"
 )
 
 type Json struct {
@@ -40,7 +40,7 @@ func (j *Json) Init(config map[string]interface{}) error {
 	return nil
 }
 
-func (j *Json) Process(event *global.Event) bool {
+func (j *Json) Process(event *internal.Event) bool {
 	var parsedData map[string]interface{}
 	err := json.Unmarshal([]byte(event.RawData), &parsedData)
 	if err != nil {

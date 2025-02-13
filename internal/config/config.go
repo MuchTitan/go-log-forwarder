@@ -7,12 +7,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/MuchTitan/go-log-forwarder/database"
-	"github.com/MuchTitan/go-log-forwarder/engine"
-	"github.com/MuchTitan/go-log-forwarder/filter"
-	"github.com/MuchTitan/go-log-forwarder/input"
-	"github.com/MuchTitan/go-log-forwarder/output"
-	"github.com/MuchTitan/go-log-forwarder/parser"
+	"github.com/MuchTitan/go-log-forwarder/internal/database"
+	"github.com/MuchTitan/go-log-forwarder/internal/engine"
+	"github.com/MuchTitan/go-log-forwarder/internal/filter"
+	"github.com/MuchTitan/go-log-forwarder/internal/input"
+	"github.com/MuchTitan/go-log-forwarder/internal/output"
+	"github.com/MuchTitan/go-log-forwarder/internal/parser"
 
 	"gopkg.in/yaml.v3"
 )

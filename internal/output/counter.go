@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
+	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/util"
 )
 
 type Counter struct {
@@ -43,7 +43,7 @@ func (c *Counter) IncrementCounter() uint64 {
 	return c.count
 }
 
-func (c *Counter) Write(events []global.Event) error {
+func (c *Counter) Write(events []internal.Event) error {
 	for _, event := range events {
 		if !util.TagMatch(event.Metadata.Tag, c.match) {
 			continue

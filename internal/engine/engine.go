@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MuchTitan/go-log-forwarder/filter"
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/input"
-	"github.com/MuchTitan/go-log-forwarder/output"
-	"github.com/MuchTitan/go-log-forwarder/parser"
+	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/filter"
+	"github.com/MuchTitan/go-log-forwarder/internal/input"
+	"github.com/MuchTitan/go-log-forwarder/internal/output"
+	"github.com/MuchTitan/go-log-forwarder/internal/parser"
 )
 
 type Engine struct {
@@ -18,7 +18,7 @@ type Engine struct {
 	parsers  []parser.Plugin
 	filters  []filter.Plugin
 	outputs  []output.Plugin
-	pipeline chan global.Event
+	pipeline chan internal.Event
 	wg       sync.WaitGroup
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -27,7 +27,7 @@ type Engine struct {
 func NewEngine() *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Engine{
-		pipeline: make(chan global.Event, 1000),
+		pipeline: make(chan internal.Event, 1000),
 		ctx:      ctx,
 		cancel:   cancel,
 	}
@@ -78,7 +78,7 @@ func (e *Engine) Start() error {
 func (e *Engine) processRecords() {
 	defer e.wg.Done()
 
-	buffer := make([]global.Event, 0, 200)
+	buffer := make([]internal.Event, 0, 200)
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -134,7 +134,7 @@ func (e *Engine) processRecords() {
 }
 
 // flush writes records to all output plugins
-func (e *Engine) flush(records []global.Event) {
+func (e *Engine) flush(records []internal.Event) {
 	for _, output := range e.outputs {
 		if err := output.Write(records); err != nil {
 			slog.Error("[Engine] Coundnt write to output", "writer", output.Name(), "error", err)

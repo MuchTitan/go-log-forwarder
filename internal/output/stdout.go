@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
+	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/util"
 )
 
 type Stdout struct {
@@ -75,7 +75,7 @@ func (s *Stdout) Init(config map[string]interface{}) error {
 	return nil
 }
 
-func (s *Stdout) Write(events []global.Event) error {
+func (s *Stdout) Write(events []internal.Event) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -108,7 +108,7 @@ func (s *Stdout) Write(events []global.Event) error {
 	return nil
 }
 
-func (s *Stdout) formatJSON(event global.Event) (string, error) {
+func (s *Stdout) formatJSON(event internal.Event) (string, error) {
 	// Create a formatted record with timestamp
 	formatted := map[string]interface{}{
 		"timestamp": event.Timestamp.Format(time.RFC3339),
@@ -140,7 +140,7 @@ func (s *Stdout) formatJSON(event global.Event) (string, error) {
 	return string(bytes), nil
 }
 
-func (s *Stdout) formatTemplate(event global.Event) (string, error) {
+func (s *Stdout) formatTemplate(event internal.Event) (string, error) {
 	if s.template == nil {
 		return "", fmt.Errorf("template not configured")
 	}
@@ -162,7 +162,7 @@ func (s *Stdout) formatTemplate(event global.Event) (string, error) {
 	return builder.String(), nil
 }
 
-func (s *Stdout) formatPlain(event global.Event) (string, error) {
+func (s *Stdout) formatPlain(event internal.Event) (string, error) {
 	// Simple plain text format: timestamp [tag] key=value key=value ...
 	var builder strings.Builder
 

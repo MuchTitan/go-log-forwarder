@@ -22,18 +22,13 @@ generate_file() {
     local file_name="${TARGET_DIR}/file_${file_num}.log"
     local line_count=$(shuf -i 25-75 -n 1)
 
-    # Delete the file if it exists, then create/truncate it
-    echo "$filename: $(ls -i $file_name)" >>foo.log
-
-    unlink "$file_name"
-    sleep 0.1 # Give the filesystem a moment to release the inode
+    rm -f "$file_name"
     : >"$file_name"
 
     # Generate and write lines
     for ((j = 1; j <= line_count; j++)); do
         generate_json_line >>"$file_name"
     done
-    echo "$filename: $(ls -i $file_name)" >>foo.log
 
     # Print line count to stdout for aggregation
     echo "$line_count"

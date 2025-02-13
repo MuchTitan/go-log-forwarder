@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -9,8 +10,19 @@ import (
 	"github.com/MuchTitan/go-log-forwarder/internal/config"
 )
 
+type FlagOptions struct {
+	configPath *string
+}
+
+var opts = FlagOptions{}
+
+func init() {
+	opts.configPath = flag.String("cfg", "/app/cfg.yaml", "provided the path to your config file")
+	flag.Parse()
+}
+
 func main() {
-	engine, err := config.NewPluginEngine("./cfg/cfg.yaml")
+	engine, err := config.NewPluginEngine(*opts.configPath)
 	if err != nil {
 		panic(err)
 	}

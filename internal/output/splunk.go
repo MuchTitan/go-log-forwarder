@@ -130,7 +130,7 @@ func (s *Splunk) newSplunkEvent(event internal.Event) splunkEvent {
 		Index:      s.index,
 		Source:     s.eventHost,
 		Sourcetype: s.sourceType,
-		Host:       "github.com/MuchTitan/go-log-forwarder",
+		Host:       "Logs from GO Log",
 		Time:       event.Timestamp.Unix(),
 	}
 

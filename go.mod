@@ -1,5 +1,6 @@
 module github.com/MuchTitan/go-log-forwarder
 
+
 go 1.24.0
 
 require (

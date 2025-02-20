@@ -2,12 +2,12 @@ package main
 
 import (
 	"flag"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/MuchTitan/go-log-forwarder/internal/config"
+	"github.com/sirupsen/logrus"
 )
 
 type FlagOptions struct {
@@ -27,7 +27,7 @@ func main() {
 		panic(err)
 	}
 
-	slog.Info("[Engine] Starting log forwarder")
+	logrus.Info("Starting log forwarder")
 
 	if err := engine.Start(); err != nil {
 		panic(err)
@@ -38,9 +38,9 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
-	slog.Info("[Engine] Stopping log forwarder")
+	logrus.Info("Stopping log forwarder")
 	engine.Stop()
 	if err := engine.DbManager.Close(); err != nil {
-		slog.Error("could not close the database", "error", err)
+		logrus.WithError(err).Errorf("could not close the database")
 	}
 }

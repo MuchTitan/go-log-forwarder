@@ -3,10 +3,10 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"sync"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/sirupsen/logrus"
 )
 
 type DBManager struct {
@@ -21,7 +21,7 @@ func NewDBManager(dbPath string) (*DBManager, error) {
 		return nil, fmt.Errorf("cound not open sqlite3 database: %v", err)
 	}
 
-	slog.Info("Opening Sqlite3 database", "file", dbPath)
+	logrus.WithField("file", dbPath).Debug("Opening Sqlite3 database.")
 
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)

@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/MuchTitan/go-log-forwarder/internal"
 	"github.com/MuchTitan/go-log-forwarder/internal/util"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -152,12 +152,12 @@ func (t *TCP) handleConnection(cs *connState, output chan<- internal.Event) {
 	linenumber := 0
 
 	if err := conn.SetDeadline(time.Now().Add(t.timeout * time.Minute)); err != nil {
-		slog.Error("Failed to set connection deadline", "error", err, "remote_addr", remoteAddr)
+		logrus.WithField("remote_addr", remoteAddr).WithError(err).Error("Failed to set connection deadline")
 		return
 	}
 
 	buffer := make([]byte, t.bufferSize)
-	slog.Info("New connection established", "remote_addr", remoteAddr)
+	logrus.WithField("remote_addr", remoteAddr).Debug("New tcp connection established")
 
 	readCtx, cancel := context.WithCancel(t.ctx)
 	defer cancel()
@@ -165,9 +165,7 @@ func (t *TCP) handleConnection(cs *connState, output chan<- internal.Event) {
 	go func() {
 		<-readCtx.Done()
 		if err := cs.Close(); err != nil {
-			slog.Debug("Error closing connection during shutdown",
-				"error", err,
-				"remote_addr", remoteAddr)
+			logrus.WithField("remote_addr", remoteAddr).WithError(err).Error("Error closing tcp connection during shutdown")
 		}
 	}()
 
@@ -178,14 +176,12 @@ func (t *TCP) handleConnection(cs *connState, output chan<- internal.Event) {
 
 		select {
 		case <-readCtx.Done():
-			slog.Info("[TCP] Connection closed due to shutdown", "remote_addr", remoteAddr)
+			logrus.WithField("remote_addr", remoteAddr).Error("Connection closed due to shutdown")
 			return
 		default:
 			if err := conn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
 				if !cs.IsClosed() {
-					slog.Error("[TCP] Failed to reset deadline",
-						"error", err,
-						"remote_addr", remoteAddr)
+					logrus.WithField("remote_addr", remoteAddr).WithError(err).Error("Failed to reset deadline")
 				}
 				return
 			}
@@ -193,7 +189,7 @@ func (t *TCP) handleConnection(cs *connState, output chan<- internal.Event) {
 			n, err := conn.Read(buffer)
 			if err != nil {
 				if err == io.EOF {
-					slog.Info("Client closed connection", "remote_addr", remoteAddr)
+					logrus.WithField("remote_addr", remoteAddr).Debug("Client closed tcp connection")
 					return
 				}
 
@@ -205,18 +201,14 @@ func (t *TCP) handleConnection(cs *connState, output chan<- internal.Event) {
 				}
 
 				if !cs.IsClosed() && t.ctx.Err() != nil {
-					slog.Error("[TCP] Error reading from connection",
-						"error", err,
-						"remote_addr", remoteAddr)
+					logrus.WithField("remote_addr", remoteAddr).WithError(err).Error("Failed to read from tcp connection")
 				}
 				return
 			}
 
 			if err := conn.SetReadDeadline(time.Now().Add(t.timeout * time.Minute)); err != nil {
 				if !cs.IsClosed() {
-					slog.Error("[TCP] Failed to reset timeout deadline",
-						"error", err,
-						"remote_addr", remoteAddr)
+					logrus.WithField("remote_addr", remoteAddr).WithError(err).Error("Failed to reset deadline")
 				}
 				return
 			}
@@ -238,7 +230,7 @@ func (t *TCP) handleConnection(cs *connState, output chan<- internal.Event) {
 				case <-t.ctx.Done():
 					return
 				default:
-					slog.Warn("[TCP] Event channel full, dropping message", "remote_addr", remoteAddr)
+					logrus.WithField("remote_addr", remoteAddr).Warn("tcp event channel full, dropping message")
 				}
 			}
 		}
@@ -255,12 +247,12 @@ func (t *TCP) Start(parentCtx context.Context, output chan<- internal.Event) err
 		return fmt.Errorf("couldn't start tcp input: %w", err)
 	}
 
-	slog.Info("[TCP] Starting",
-		"addr", addr,
-		"buffer_size", t.bufferSize,
-		"timeout", t.timeout,
-		"max_connections", maxConnectionCountTCP,
-	)
+	logrus.WithFields(logrus.Fields{
+		"addr":            addr,
+		"buffer_size":     t.bufferSize,
+		"timeout":         t.timeout,
+		"max_connections": maxConnectionCountTCP,
+	}).Info("Starting tcp input")
 
 	t.wg.Add(1)
 	go func() {
@@ -273,14 +265,16 @@ func (t *TCP) Start(parentCtx context.Context, output chan<- internal.Event) err
 				conn, err := t.listener.Accept()
 				if err != nil {
 					if t.ctx.Err() != nil {
-						slog.Warn("[TCP] Error accepting input connection", "error", err)
+						logrus.WithError(err).Error("could not accept tcp input connection")
 					}
 					continue
 				}
 
 				if !t.incrementConnCount() {
-					slog.Warn("[TCP] Maximum connection limit reached, rejecting connection",
-						"remote_addr", conn.RemoteAddr().String())
+					logrus.WithFields(logrus.Fields{
+						"remote_addr":     conn.RemoteAddr().String(),
+						"max_connections": maxConnectionCountTCP,
+					}).Warn("Maximum tcp connection limit reached, rejecting connection")
 					conn.Close()
 					continue
 				}
@@ -297,14 +291,14 @@ func (t *TCP) Start(parentCtx context.Context, output chan<- internal.Event) err
 }
 
 func (t *TCP) Exit() error {
-	slog.Info("[TCP] Stopping")
+	logrus.Info("Stopping tcp input")
 	if t.cancel != nil {
 		t.cancel()
 	}
 
 	if t.listener != nil {
 		if err := t.listener.Close(); err != nil {
-			slog.Error("[TCP] Error closing listener", "error", err)
+			logrus.WithError(err).Error("could not close tcp listener")
 		}
 	}
 

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 
 	"github.com/MuchTitan/go-log-forwarder/internal"
 	"github.com/MuchTitan/go-log-forwarder/internal/util"
+	"github.com/sirupsen/logrus"
 
 	"gopkg.in/Graylog2/go-gelf.v2/gelf"
 )
@@ -110,7 +110,7 @@ func (g *GELF) Write(events []internal.Event) error {
 
 		if len(g.buffer) > 100 {
 			if err := g.Flush(); err != nil {
-				slog.Error("coudnt flush gelf output", "error", err)
+				logrus.WithError(err).Error("could not flush gelf output")
 			}
 		}
 	}

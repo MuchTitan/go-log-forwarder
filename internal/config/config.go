@@ -3,9 +3,9 @@ package config
 import (
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/MuchTitan/go-log-forwarder/internal/database"
 	"github.com/MuchTitan/go-log-forwarder/internal/engine"
@@ -13,6 +13,7 @@ import (
 	"github.com/MuchTitan/go-log-forwarder/internal/input"
 	"github.com/MuchTitan/go-log-forwarder/internal/output"
 	"github.com/MuchTitan/go-log-forwarder/internal/parser"
+	"github.com/sirupsen/logrus"
 
 	"gopkg.in/yaml.v3"
 )
@@ -33,17 +34,19 @@ type SystemConfig struct {
 	DBFile   string `yaml:"dbFile"`
 }
 
-func (c *SystemConfig) GetLogLevel() int {
+func (c *SystemConfig) GetLogLevel() logrus.Level {
 	switch strings.ToUpper(c.LogLevel) {
+	case "TRACE":
+		return logrus.TraceLevel
 	case "DEBUG":
-		return -4
+		return logrus.DebugLevel
 	case "WARNING":
-		return 4
+		return logrus.WarnLevel
 	case "ERROR":
-		return 8
+		return logrus.ErrorLevel
 	default:
 		// Default LogLevel Info
-		return 0
+		return logrus.InfoLevel
 	}
 }
 
@@ -109,20 +112,17 @@ func (e *PluginEngine) setupLogging() error {
 		writers = append(writers, file)
 	}
 
+	// Set log level based on config
+	logrus.SetLevel(e.config.System.GetLogLevel())
+
 	// Create multi-writer
 	writer := io.MultiWriter(writers...)
+	logrus.SetOutput(writer)
 
-	// Set log level based on config
-	var level int
-	if e.config.System.LogLevel != "" {
-		level = e.config.System.GetLogLevel()
-	}
+	logrus.SetFormatter(&logrus.JSONFormatter{
+		TimestampFormat: time.RFC3339, // Use RFC3339 format (2006-01-02T15:04:05Z07:00)
+	})
 
-	opts := &slog.HandlerOptions{
-		Level: slog.Level(level),
-	}
-	logger := slog.New(slog.NewJSONHandler(writer, opts))
-	slog.SetDefault(logger)
 	return nil
 }
 

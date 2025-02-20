@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/MuchTitan/go-log-forwarder/internal"
 	"github.com/MuchTitan/go-log-forwarder/internal/database"
 	"github.com/MuchTitan/go-log-forwarder/internal/util"
+	"github.com/sirupsen/logrus"
 )
 
 type Tail struct {
@@ -111,7 +111,7 @@ func (t *Tail) Start(parentCtx context.Context, output chan<- internal.Event) er
 	}
 	t.ctx, t.cancel = context.WithCancel(parentCtx)
 	go t.fileStatLoop(t.ctx)
-	slog.Info("[Tail] Starting", "glob", t.glob)
+	logrus.WithField("glob", t.glob).Info("Starting Tail Input")
 	go func() {
 		for {
 			select {
@@ -135,7 +135,7 @@ func (t *Tail) Start(parentCtx context.Context, output chan<- internal.Event) er
 }
 
 func (t *Tail) Exit() error {
-	slog.Info("[Tail] Stopping", "glob", t.glob)
+	logrus.WithField("glob", t.glob).Info("Stopping Tail Input")
 	if t.cancel != nil {
 		t.cancel()
 	}
@@ -146,7 +146,7 @@ func (t *Tail) Exit() error {
 	if err != nil {
 		return err
 	}
-	slog.Info("cleaned old entries in tail_files db", "amount", deletedCount)
+	logrus.Debugf("cleaned %d old entries in tail_files db", deletedCount)
 	return nil
 }
 
@@ -161,7 +161,7 @@ func (t *Tail) fileStatLoop(ctx context.Context) {
 		select {
 		case t.fileEventCh <- path:
 		default:
-			slog.Warn("file event overflow")
+			logrus.Warn("file event overflow")
 		}
 	}
 
@@ -222,13 +222,13 @@ func (t *Tail) fileStatLoop(ctx context.Context) {
 	// Initial file processing
 	matches, err := filepath.Glob(t.glob)
 	if err != nil {
-		slog.Error("couldn't get files for glob", "error", err)
+		logrus.WithError(err).Warn("could not get files for glob")
 		return
 	}
 
 	for _, path := range matches {
 		if err := processFile(path); err != nil {
-			slog.Error("error processing file", "error", err, "path", path)
+			logrus.WithError(err).Warn("error processing file")
 		}
 	}
 
@@ -240,12 +240,12 @@ func (t *Tail) fileStatLoop(ctx context.Context) {
 		case <-ticker.C:
 			matches, err := filepath.Glob(t.glob)
 			if err != nil {
-				slog.Error("couldn't get files for glob", "error", err)
+				logrus.WithError(err).Warn("could not get files for glob")
 				continue
 			}
 			for _, path := range matches {
 				if err := processFile(path); err != nil {
-					slog.Error("error processing file", "error", err, "path", path)
+					logrus.WithError(err).Warn("error processing file")
 				}
 			}
 		}
@@ -274,7 +274,7 @@ func (t *Tail) readFileWithDebounce(path string, output chan<- internal.Event) {
 		default:
 			t.wg.Add(1)
 			if err := t.readFile(path, output); err != nil {
-				slog.Error("couldn't read from file", "error", err, "path", path)
+				logrus.WithField("path", path).WithError(err).Warn("couldn't read from file")
 			}
 		}
 	})
@@ -314,12 +314,15 @@ func (t *Tail) readFile(path string, output chan<- internal.Event) error {
 	if state, exists := t.state[path]; !exists {
 		inode, err := getFileID(fileInfo)
 		if err != nil {
-			slog.Error("error getting inode", "file", path)
+			logrus.WithField("path", path).WithError(err).Error("could not get inode")
 		}
 		dbState, err := t.getFileStateFromDB(path, inode)
 		if err != nil {
 			currentFileState = &filestate{name: path, inode: inode}
-			slog.Debug("did not find a saved file state in db", "path", path, "inode", inode, "error", err)
+			logrus.WithFields(logrus.Fields{
+				"path":  path,
+				"inode": inode,
+			}).WithError(err).Trace("did not find a saved file state in db")
 		} else {
 			currentFileState = &dbState
 		}
@@ -333,7 +336,7 @@ func (t *Tail) readFile(path string, output chan<- internal.Event) error {
 		currentFileState.offset = 0
 		currentFileState.lastReadLine = 0
 		if err := t.deleteFileFromDB(currentFileState.name, currentFileState.inode); err != nil {
-			slog.Error("error during file state deleting", "error", err)
+			logrus.WithError(err).Error("error during file state deleting")
 		}
 	}
 
@@ -422,7 +425,7 @@ func (t *Tail) persistStates() {
             INSERT OR REPLACE INTO tail_files (path, offset, lastReadLine, inodenumber, updated_at) VALUES ($1,$2,$3,$4,$5)
 			`)
 		if err != nil {
-			slog.Error("Failed to prepare statement", "error", err)
+			logrus.WithError(err).Error("error during db transaction preparation")
 			tx.Rollback()
 		}
 
@@ -435,7 +438,7 @@ func (t *Tail) persistStates() {
 				time.Now(),
 			)
 			if err != nil {
-				slog.Error("Failed to execute statement", "error", err)
+				logrus.WithError(err).Error("error during db statement execution")
 				continue
 			}
 		}
@@ -443,8 +446,10 @@ func (t *Tail) persistStates() {
 		stmt.Close()
 		err = tx.Commit()
 		if err != nil {
-			slog.Error("Failed to commit transaction", "error", err)
-			tx.Rollback()
+			logrus.WithError(err).Error("error during db transaction commit")
+			if err := tx.Rollback(); err != nil {
+				logrus.WithError(err).Error("could not rollback db transaction")
+			}
 		}
 
 		updates = updates[:0] // Clear the slice

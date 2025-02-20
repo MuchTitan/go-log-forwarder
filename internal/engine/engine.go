@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/MuchTitan/go-log-forwarder/internal/input"
 	"github.com/MuchTitan/go-log-forwarder/internal/output"
 	"github.com/MuchTitan/go-log-forwarder/internal/parser"
+	"github.com/sirupsen/logrus"
 )
 
 type Engine struct {
@@ -27,7 +27,7 @@ type Engine struct {
 func NewEngine() *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Engine{
-		pipeline: make(chan internal.Event, 1000),
+		pipeline: make(chan internal.Event),
 		ctx:      ctx,
 		cancel:   cancel,
 	}
@@ -62,7 +62,7 @@ func (e *Engine) Start() error {
 			defer e.wg.Done()
 			if err := in.Start(e.ctx, e.pipeline); err != nil {
 				// TODO: Implement proper error handling (error channel?)
-				slog.Error("[Engine] Coundnt start input", "input", in.Name(), "error", err)
+				logrus.WithError(err).Errorf("Coundnt start input: %s.", in.Name())
 			}
 		}(in)
 	}
@@ -104,7 +104,7 @@ func (e *Engine) processRecords() {
 				var err error
 				processedEvent, err = filter.Process(processedEvent)
 				if err != nil {
-					slog.Error("[Engine] Coundnt filter event", "filter", filter.Name(), "error", err)
+					logrus.WithError(err).Errorf("Coundnt filter event")
 					continue
 				}
 				if processedEvent == nil {
@@ -137,7 +137,7 @@ func (e *Engine) processRecords() {
 func (e *Engine) flush(records []internal.Event) {
 	for _, output := range e.outputs {
 		if err := output.Write(records); err != nil {
-			slog.Error("[Engine] Coundnt write to output", "writer", output.Name(), "error", err)
+			logrus.Error("[Engine] Coundnt write to output", "writer", output.Name(), "error", err)
 		}
 	}
 }

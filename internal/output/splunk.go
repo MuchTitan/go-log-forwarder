@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/MuchTitan/go-log-forwarder/internal"
 	"github.com/MuchTitan/go-log-forwarder/internal/util"
+	"github.com/sirupsen/logrus"
 )
 
 type Splunk struct {
@@ -196,7 +196,10 @@ func (s *Splunk) Flush() error {
 	} else {
 		requestBody = s.buffer
 	}
-	tmp := s.buffer.String()
+	var tmpDataString string
+	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+		tmpDataString = s.buffer.String()
+	}
 	s.buffer.Reset()
 
 	req, _ := http.NewRequest("POST", url, &requestBody)
@@ -213,12 +216,12 @@ func (s *Splunk) Flush() error {
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		slog.Debug("splunk request", "req", map[string]interface{}{
+		logrus.WithFields(logrus.Fields{
 			"url":     req.URL.String(),
 			"method":  req.Method,
 			"headers": req.Header,
-			"body":    tmp,
-		})
+			"body":    tmpDataString,
+		}).Tracef("splunk request returned status: %d", res.StatusCode)
 		return fmt.Errorf("splunk returned status: %s", res.Status)
 	}
 

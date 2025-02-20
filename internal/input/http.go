@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"slices"
 	"sync"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/MuchTitan/go-log-forwarder/internal"
 	"github.com/MuchTitan/go-log-forwarder/internal/util"
+	"github.com/sirupsen/logrus"
 )
 
 const DefaultHttpBufferSize int64 = 5 << 20 // 5MB
@@ -153,20 +153,20 @@ func (h *InHTTP) Start(ctx context.Context, output chan<- internal.Event) error 
 	h.ctx = ctx
 	http.HandleFunc("/", h.handleReq)
 	go func() {
-		slog.Info("[HTTP] Starting", "Addr", h.addr)
+		logrus.WithField("Addr", h.addr).Info("Starting Http Input")
 		if err := h.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("[HTTP] An error occured during the http input", "addr", h.addr, "error", err)
+			logrus.WithField("Addr", h.addr).WithError(err).Error("error during http input")
 		}
 	}()
 	return nil
 }
 
 func (h *InHTTP) Exit() error {
-	slog.Info("[HTTP] Stopping")
+	logrus.Info("Stopping Http Input")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second*60)
 	defer shutdownCancel()
 	if err := h.server.Shutdown(shutdownCtx); err != nil {
-		slog.Error("[HTTP] error during http server shutdown", "error", err)
+		logrus.WithError(err).Error("error during http server shutdown")
 		return err
 	}
 	h.wg.Wait()

@@ -3,15 +3,17 @@ package config
 import (
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"strings"
+	"time"
 
-	"github.com/MuchTitan/go-log-forwarder/engine"
-	"github.com/MuchTitan/go-log-forwarder/filter"
-	"github.com/MuchTitan/go-log-forwarder/input"
-	"github.com/MuchTitan/go-log-forwarder/output"
-	"github.com/MuchTitan/go-log-forwarder/parser"
+	"github.com/MuchTitan/go-log-forwarder/internal/database"
+	"github.com/MuchTitan/go-log-forwarder/internal/engine"
+	"github.com/MuchTitan/go-log-forwarder/internal/filter"
+	"github.com/MuchTitan/go-log-forwarder/internal/input"
+	"github.com/MuchTitan/go-log-forwarder/internal/output"
+	"github.com/MuchTitan/go-log-forwarder/internal/parser"
+	"github.com/sirupsen/logrus"
 
 	"gopkg.in/yaml.v3"
 )
@@ -29,26 +31,30 @@ type Config struct {
 type SystemConfig struct {
 	LogLevel string `yaml:"logLevel"`
 	LogFile  string `yaml:"logFile"`
+	DBFile   string `yaml:"dbFile"`
 }
 
-func (c *SystemConfig) GetLogLevel() int {
+func (c *SystemConfig) GetLogLevel() logrus.Level {
 	switch strings.ToUpper(c.LogLevel) {
+	case "TRACE":
+		return logrus.TraceLevel
 	case "DEBUG":
-		return -4
+		return logrus.DebugLevel
 	case "WARNING":
-		return 4
+		return logrus.WarnLevel
 	case "ERROR":
-		return 8
+		return logrus.ErrorLevel
 	default:
 		// Default LogLevel Info
-		return 0
+		return logrus.InfoLevel
 	}
 }
 
 // Engine is extended to include configuration
 type PluginEngine struct {
 	*engine.Engine
-	config Config
+	config    Config
+	DbManager *database.DBManager
 }
 
 // NewPluginEngine creates a new engine with configuration
@@ -60,6 +66,12 @@ func NewPluginEngine(configPath string) (*PluginEngine, error) {
 	if err := engine.loadConfig(configPath); err != nil {
 		return nil, err
 	}
+
+	dbManager, err := database.NewDBManager(engine.config.System.DBFile)
+	if err != nil {
+		return nil, err
+	}
+	engine.DbManager = dbManager
 
 	if err := engine.initializePlugins(); err != nil {
 		return nil, err
@@ -75,7 +87,7 @@ func (e *PluginEngine) loadConfig(path string) error {
 	}
 
 	// Replace environment variables
-	expandedData := os.Expand(string(data), os.Getenv)
+	expandedData := os.ExpandEnv(string(data))
 
 	if err := yaml.Unmarshal([]byte(expandedData), &e.config); err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
@@ -100,20 +112,17 @@ func (e *PluginEngine) setupLogging() error {
 		writers = append(writers, file)
 	}
 
+	// Set log level based on config
+	logrus.SetLevel(e.config.System.GetLogLevel())
+
 	// Create multi-writer
 	writer := io.MultiWriter(writers...)
+	logrus.SetOutput(writer)
 
-	// Set log level based on config
-	var level int
-	if e.config.System.LogLevel != "" {
-		level = e.config.System.GetLogLevel()
-	}
+	logrus.SetFormatter(&logrus.JSONFormatter{
+		TimestampFormat: time.RFC3339, // Use RFC3339 format (2006-01-02T15:04:05Z07:00)
+	})
 
-	opts := &slog.HandlerOptions{
-		Level: slog.Level(level),
-	}
-	logger := slog.New(slog.NewJSONHandler(writer, opts))
-	slog.SetDefault(logger)
 	return nil
 }
 
@@ -154,7 +163,9 @@ func (e *PluginEngine) initializeInput(config map[string]interface{}) error {
 
 	switch strings.ToLower(config["Type"].(string)) {
 	case "tail":
-		inputObject = &input.Tail{}
+		inputObject = &input.Tail{
+			DbManager: e.DbManager,
+		}
 	case "tcp":
 		inputObject = &input.TCP{}
 	case "http":

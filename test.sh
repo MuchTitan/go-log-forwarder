@@ -22,7 +22,6 @@ generate_file() {
     local file_name="${TARGET_DIR}/file_${file_num}.log"
     local line_count=$(shuf -i 25-75 -n 1)
 
-    # Delete the file if it exists, then create/truncate it
     rm -f "$file_name"
     : >"$file_name"
 

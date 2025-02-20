@@ -11,8 +11,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/MuchTitan/go-log-forwarder/global"
-	"github.com/MuchTitan/go-log-forwarder/util"
+	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/util"
+	"github.com/sirupsen/logrus"
 )
 
 type Splunk struct {
@@ -117,19 +118,19 @@ func (s *Splunk) Init(config map[string]interface{}) error {
 	return nil
 }
 
-func AppendMetadata(splunkevent *splunkEvent, event *global.Event) {
+func AppendMetadata(splunkevent *splunkEvent, event *internal.Event) {
 	currData := splunkevent.Event.(map[string]interface{})
 	currData["source"] = event.Metadata.Source
 	currData["lineNum"] = event.Metadata.LineNum
 	splunkevent.Event = currData
 }
 
-func (s *Splunk) newSplunkEvent(event global.Event) splunkEvent {
+func (s *Splunk) newSplunkEvent(event internal.Event) splunkEvent {
 	splunkevent := splunkEvent{
 		Index:      s.index,
 		Source:     s.eventHost,
 		Sourcetype: s.sourceType,
-		Host:       "github.com/MuchTitan/go-log-forwarder",
+		Host:       "Logs from GO Log",
 		Time:       event.Timestamp.Unix(),
 	}
 
@@ -146,18 +147,23 @@ func (s *Splunk) newSplunkEvent(event global.Event) splunkEvent {
 	return splunkevent
 }
 
-func (s *Splunk) Write(events []global.Event) error {
+func (s *Splunk) Write(events []internal.Event) error {
+	// Convert all events to splunkEvents first
+	splunkEvents := make([]splunkEvent, 0, len(events))
 	for _, event := range events {
 		splunkevent := s.newSplunkEvent(event)
 		if splunkevent.Event == nil {
-			fmt.Println(event)
+			continue
 		}
-		data, err := json.Marshal(splunkevent)
-		if err != nil {
-			return fmt.Errorf("failed to marshal event: %w", err)
-		}
-		s.buffer.Write(data)
+		splunkEvents = append(splunkEvents, splunkevent)
 	}
+
+	data, err := json.Marshal(splunkEvents)
+	if err != nil {
+		return fmt.Errorf("failed to marshal events: %w", err)
+	}
+
+	s.buffer.Write(data)
 
 	if s.buffer.Len() > 100 {
 		if err := s.Flush(); err != nil {
@@ -190,7 +196,10 @@ func (s *Splunk) Flush() error {
 	} else {
 		requestBody = s.buffer
 	}
-	tmp := s.buffer.String()
+	var tmpDataString string
+	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+		tmpDataString = s.buffer.String()
+	}
 	s.buffer.Reset()
 
 	req, _ := http.NewRequest("POST", url, &requestBody)
@@ -207,9 +216,15 @@ func (s *Splunk) Flush() error {
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		fmt.Println(tmp)
+		logrus.WithFields(logrus.Fields{
+			"url":     req.URL.String(),
+			"method":  req.Method,
+			"headers": req.Header,
+			"body":    tmpDataString,
+		}).Tracef("splunk request returned status: %d", res.StatusCode)
 		return fmt.Errorf("splunk returned status: %s", res.Status)
 	}
+
 	return nil
 }
 

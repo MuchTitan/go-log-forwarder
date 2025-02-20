@@ -1,6 +1,7 @@
 System:
   logLevel: INFO
   logFile: "./forwarder.log"
+  dbFile: "state.db"
 
 Inputs:
   - Type: "tail"
@@ -11,7 +12,5 @@ Parsers:
   - Type: "json"
 
 Outputs:
-  - Type: stdout
+  - Type: counter
     Match: "*"
-    Format: plain
-    Colors: true

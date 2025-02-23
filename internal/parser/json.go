@@ -19,7 +19,7 @@ func (j *Json) Name() string {
 	return j.name
 }
 
-func (j *Json) Init(config map[string]interface{}) error {
+func (j *Json) Init(config map[string]any) error {
 	j.name = util.MustString(config["Name"])
 	if j.name == "" {
 		j.name = "json"
@@ -29,9 +29,9 @@ func (j *Json) Init(config map[string]interface{}) error {
 
 	j.timeFormat = util.MustString(config["TimeFormat"])
 	if j.timeFormat != "" {
-		_, err := time.Parse(j.timeFormat, time.Now().String())
-		if err != nil {
-			return fmt.Errorf("not a valid time format in Json Parser err: %w", err)
+		timeStr := time.Now().Format(j.timeFormat)
+		if timeStr == "invalid" {
+			return fmt.Errorf("not a valid time format in json Parser")
 		}
 	} else {
 		j.timeFormat = time.RFC3339
@@ -41,7 +41,7 @@ func (j *Json) Init(config map[string]interface{}) error {
 }
 
 func (j *Json) Process(event *internal.Event) bool {
-	var parsedData map[string]interface{}
+	var parsedData map[string]any
 	err := json.Unmarshal([]byte(event.RawData), &parsedData)
 	if err != nil {
 		return false

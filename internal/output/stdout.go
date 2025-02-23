@@ -28,7 +28,7 @@ func (s *Stdout) Name() string {
 	return s.name
 }
 
-func (s *Stdout) Init(config map[string]interface{}) error {
+func (s *Stdout) Init(config map[string]any) error {
 	// Set default format
 	s.name = util.MustString(config["Name"])
 	if s.name == "" {
@@ -110,7 +110,7 @@ func (s *Stdout) Write(events []internal.Event) error {
 
 func (s *Stdout) formatJSON(event internal.Event) (string, error) {
 	// Create a formatted record with timestamp
-	formatted := map[string]interface{}{
+	formatted := map[string]any{
 		"timestamp": event.Timestamp.Format(time.RFC3339),
 		"tag":       event.Metadata.Tag,
 		"data":      event.ParsedData,
@@ -149,7 +149,7 @@ func (s *Stdout) formatTemplate(event internal.Event) (string, error) {
 	err := s.template.Execute(builder, struct {
 		Timestamp time.Time
 		Tag       string
-		Data      map[string]interface{}
+		Data      map[string]any
 	}{
 		Timestamp: event.Timestamp,
 		Tag:       event.Metadata.Tag,

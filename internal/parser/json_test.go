@@ -14,7 +14,7 @@ func TestJsonParser_Process(t *testing.T) {
 		parser      Json
 		inputEvent  *internal.Event
 		wantSuccess bool
-		wantParsed  map[string]interface{}
+		wantParsed  map[string]any
 	}{
 		{
 			name: "valid json with timestamp",
@@ -26,7 +26,7 @@ func TestJsonParser_Process(t *testing.T) {
 				RawData: `{"timestamp":"2024-02-20T15:04:05Z","message":"test log"}`,
 			},
 			wantSuccess: true,
-			wantParsed: map[string]interface{}{
+			wantParsed: map[string]any{
 				"timestamp": "2024-02-20T15:04:05Z",
 				"message":   "test log",
 			},
@@ -47,7 +47,7 @@ func TestJsonParser_Process(t *testing.T) {
 				RawData: `{}`,
 			},
 			wantSuccess: true,
-			wantParsed:  map[string]interface{}{},
+			wantParsed:  map[string]any{},
 		},
 		{
 			name:   "nested json",
@@ -56,8 +56,8 @@ func TestJsonParser_Process(t *testing.T) {
 				RawData: `{"data":{"nested":"value"},"message":"test"}`,
 			},
 			wantSuccess: true,
-			wantParsed: map[string]interface{}{
-				"data": map[string]interface{}{
+			wantParsed: map[string]any{
+				"data": map[string]any{
 					"nested": "value",
 				},
 				"message": "test",

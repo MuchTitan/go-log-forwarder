@@ -43,14 +43,14 @@ func TagMatch(inputTag, match string) bool {
 	return true
 }
 
-func MergeMaps(m1, m2 map[string]interface{}) map[string]interface{} {
+func MergeMaps(m1, m2 map[string]any) map[string]any {
 	for k, v := range m2 {
 		m1[k] = v
 	}
 	return m1
 }
 
-func MustString(data interface{}) string {
+func MustString(data any) string {
 	if data == nil {
 		return ""
 	}

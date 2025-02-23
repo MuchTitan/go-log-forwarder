@@ -26,7 +26,7 @@ func (g *Grep) MatchTag(inputTag string) bool {
 	return util.TagMatch(inputTag, g.match)
 }
 
-func (g *Grep) Init(config map[string]interface{}) error {
+func (g *Grep) Init(config map[string]any) error {
 	g.op = util.MustString(config["Op"])
 	if g.op == "" {
 		g.op = "and"

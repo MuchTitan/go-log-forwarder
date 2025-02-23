@@ -58,7 +58,7 @@ func (t *Tail) Tag() string {
 	return t.tag
 }
 
-func (t *Tail) Init(config map[string]interface{}) error {
+func (t *Tail) Init(config map[string]any) error {
 	t.glob = util.MustString(config["Glob"])
 	if t.glob == "" {
 		return fmt.Errorf("no glob provided for tail input")

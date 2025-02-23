@@ -20,7 +20,7 @@ func (c *Counter) Name() string {
 	return c.name
 }
 
-func (c *Counter) Init(config map[string]interface{}) error {
+func (c *Counter) Init(config map[string]any) error {
 	c.name = util.MustString(config["Name"])
 	if c.name == "" {
 		c.name = "counter"
@@ -49,7 +49,7 @@ func (c *Counter) Write(events []internal.Event) error {
 			continue
 		}
 		count := c.IncrementCounter()
-		data := map[string]interface{}{
+		data := map[string]any{
 			"count": count,
 		}
 		jsonData, _ := json.Marshal(data)

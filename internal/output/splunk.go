@@ -29,7 +29,7 @@ type Splunk struct {
 	verifyTLS   bool
 	sendRaw     bool
 	httpClient  *http.Client
-	eventFields map[string]interface{}
+	eventFields map[string]any
 	buffer      bytes.Buffer
 }
 
@@ -38,7 +38,7 @@ func (s *Splunk) MatchTag(inputTag string) bool {
 }
 
 type splunkEvent struct {
-	Event      interface{} `json:"event"`
+	Event      any `json:"event"`
 	Index      string      `json:"index"`
 	Source     string      `json:"source"`
 	Sourcetype string      `json:"sourcetype"`
@@ -50,7 +50,7 @@ func (s *Splunk) Name() string {
 	return s.name
 }
 
-func (s *Splunk) Init(config map[string]interface{}) error {
+func (s *Splunk) Init(config map[string]any) error {
 	// Required fields
 	s.token = util.MustString(config["Token"])
 	if s.token == "" {
@@ -119,7 +119,7 @@ func (s *Splunk) Init(config map[string]interface{}) error {
 }
 
 func AppendMetadata(splunkevent *splunkEvent, event *internal.Event) {
-	currData := splunkevent.Event.(map[string]interface{})
+	currData := splunkevent.Event.(map[string]any)
 	currData["source"] = event.Metadata.Source
 	currData["lineNum"] = event.Metadata.LineNum
 	splunkevent.Event = currData

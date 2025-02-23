@@ -74,7 +74,7 @@ func (t *TCP) Tag() string {
 	return t.tag
 }
 
-func (t *TCP) Init(config map[string]interface{}) error {
+func (t *TCP) Init(config map[string]any) error {
 	t.listenAddr = util.MustString(config["ListenAddr"])
 	if t.listenAddr == "" {
 		t.listenAddr = "0.0.0.0"
@@ -302,7 +302,7 @@ func (t *TCP) Exit() error {
 		}
 	}
 
-	t.activeConns.Range(func(key, value interface{}) bool {
+	t.activeConns.Range(func(key, value any) bool {
 		if cs, ok := key.(*connState); ok {
 			cs.Close()
 		}

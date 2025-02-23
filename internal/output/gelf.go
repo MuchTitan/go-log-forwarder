@@ -27,7 +27,7 @@ func (g *GELF) Name() string {
 	return g.name
 }
 
-func (g *GELF) Init(config map[string]interface{}) error {
+func (g *GELF) Init(config map[string]any) error {
 	g.name = util.MustString(config["Name"])
 	if g.name == "" {
 		g.name = "gelf"
@@ -103,7 +103,7 @@ func (g *GELF) Write(events []internal.Event) error {
 			Short:    jsonData,
 			TimeUnix: float64(event.Timestamp.Unix()),
 			Level:    gelf.LOG_INFO, // Info level by default
-			Extra:    make(map[string]interface{}),
+			Extra:    make(map[string]any),
 		}
 
 		g.buffer = append(g.buffer, &msg)

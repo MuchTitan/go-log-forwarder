@@ -8,7 +8,7 @@ import (
 type Event struct {
 	Timestamp  time.Time
 	RawData    string
-	ParsedData map[string]interface{}
+	ParsedData map[string]any
 	Metadata   Metadata
 }
 
@@ -23,7 +23,7 @@ type Metadata struct {
 // Plugin interface that all plugins must implement
 type Plugin interface {
 	Name() string
-	Init(config map[string]interface{}) error
+	Init(config map[string]any) error
 	Exit() error
 }
 

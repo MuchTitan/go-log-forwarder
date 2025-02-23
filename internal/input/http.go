@@ -41,7 +41,7 @@ func (h *InHTTP) Tag() string {
 	return h.tag
 }
 
-func (h *InHTTP) Init(config map[string]interface{}) error {
+func (h *InHTTP) Init(config map[string]any) error {
 	h.name = util.MustString(config["Name"])
 	if h.name == "" {
 		h.name = "http"

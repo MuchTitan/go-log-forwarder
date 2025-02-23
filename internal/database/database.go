@@ -32,7 +32,7 @@ func NewDBManager(dbPath string) (*DBManager, error) {
 }
 
 // ExecuteWrite performs a write operation safely
-func (dm *DBManager) ExecuteWrite(query string, args ...interface{}) (sql.Result, error) {
+func (dm *DBManager) ExecuteWrite(query string, args ...any) (sql.Result, error) {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 
@@ -59,12 +59,12 @@ func (dm *DBManager) ExecuteWriteTx(fn func(*sql.Tx) error) error {
 }
 
 // Query performs a read operation (Row)
-func (dm *DBManager) QueryRow(query string, args ...interface{}) *sql.Row {
+func (dm *DBManager) QueryRow(query string, args ...any) *sql.Row {
 	return dm.db.QueryRow(query, args...)
 }
 
 // Query performs a read operation (Rows)
-func (dm *DBManager) Query(query string, args ...interface{}) (*sql.Rows, error) {
+func (dm *DBManager) Query(query string, args ...any) (*sql.Rows, error) {
 	return dm.db.Query(query, args...)
 }
 

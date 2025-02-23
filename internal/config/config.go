@@ -21,10 +21,10 @@ import (
 // Config represents the complete configuration
 type Config struct {
 	System  SystemConfig             `yaml:"System"`
-	Inputs  []map[string]interface{} `yaml:"Inputs"`
-	Parsers []map[string]interface{} `yaml:"Parsers"`
-	Filters []map[string]interface{} `yaml:"Filters"`
-	Outputs []map[string]interface{} `yaml:"Outputs"`
+	Inputs  []map[string]any `yaml:"Inputs"`
+	Parsers []map[string]any `yaml:"Parsers"`
+	Filters []map[string]any `yaml:"Filters"`
+	Outputs []map[string]any `yaml:"Outputs"`
 }
 
 // SystemConfig holds system-wide configuration
@@ -158,7 +158,7 @@ func (e *PluginEngine) initializePlugins() error {
 	return nil
 }
 
-func (e *PluginEngine) initializeInput(config map[string]interface{}) error {
+func (e *PluginEngine) initializeInput(config map[string]any) error {
 	var inputObject input.Plugin
 
 	switch strings.ToLower(config["Type"].(string)) {
@@ -182,7 +182,7 @@ func (e *PluginEngine) initializeInput(config map[string]interface{}) error {
 	return nil
 }
 
-func (e *PluginEngine) initializeParser(config map[string]interface{}) error {
+func (e *PluginEngine) initializeParser(config map[string]any) error {
 	var parserObject parser.Plugin
 
 	switch strings.ToLower(config["Type"].(string)) {
@@ -202,7 +202,7 @@ func (e *PluginEngine) initializeParser(config map[string]interface{}) error {
 	return nil
 }
 
-func (e *PluginEngine) initializeFilter(config map[string]interface{}) error {
+func (e *PluginEngine) initializeFilter(config map[string]any) error {
 	var filterObject filter.Plugin
 
 	switch strings.ToLower(config["Type"].(string)) {
@@ -220,7 +220,7 @@ func (e *PluginEngine) initializeFilter(config map[string]interface{}) error {
 	return nil
 }
 
-func (e *PluginEngine) initializeOutput(config map[string]interface{}) error {
+func (e *PluginEngine) initializeOutput(config map[string]any) error {
 	var outputObject output.Plugin
 
 	switch strings.ToLower(config["Type"].(string)) {

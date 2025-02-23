@@ -22,7 +22,7 @@ func TestGrepProcess(t *testing.T) {
 				regex: []string{"error.*"},
 			},
 			input: &internal.Event{
-				ParsedData: map[string]interface{}{
+				ParsedData: map[string]any{
 					"message": "error occurred in system",
 				},
 			},
@@ -36,7 +36,7 @@ func TestGrepProcess(t *testing.T) {
 				regex: []string{"error.*", "critical.*"},
 			},
 			input: &internal.Event{
-				ParsedData: map[string]interface{}{
+				ParsedData: map[string]any{
 					"message": "error occurred in system",
 				},
 			},
@@ -50,7 +50,7 @@ func TestGrepProcess(t *testing.T) {
 				exclude: []string{"debug.*"},
 			},
 			input: &internal.Event{
-				ParsedData: map[string]interface{}{
+				ParsedData: map[string]any{
 					"message": "debug message",
 				},
 			},
@@ -64,7 +64,7 @@ func TestGrepProcess(t *testing.T) {
 				regex: []string{"[invalid"},
 			},
 			input: &internal.Event{
-				ParsedData: map[string]interface{}{
+				ParsedData: map[string]any{
 					"message": "test message",
 				},
 			},

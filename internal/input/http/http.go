@@ -155,7 +155,6 @@ func (h *InHTTP) Start(ctx context.Context, output chan<- internal.Event) error 
 	http.HandleFunc("/", h.handleReq)
 	go func() {
 		logrus.WithField("Addr", h.addr).Info("Starting Http Input")
-		h.server.Addr = h.addr
 		if err := h.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logrus.WithField("Addr", h.addr).WithError(err).Error("error during http input")
 		}

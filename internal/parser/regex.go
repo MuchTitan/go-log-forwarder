@@ -21,7 +21,7 @@ func (r *Regex) Name() string {
 	return r.name
 }
 
-func (r *Regex) Init(config map[string]interface{}) error {
+func (r *Regex) Init(config map[string]any) error {
 	r.name = util.MustString(config["Name"])
 	if r.name == "" {
 		r.name = "regex"
@@ -39,9 +39,9 @@ func (r *Regex) Init(config map[string]interface{}) error {
 
 	r.timeFormat = util.MustString(config["TimeFormat"])
 	if r.timeFormat != "" {
-		_, err := time.Parse(r.timeFormat, time.Now().String())
-		if err != nil {
-			return fmt.Errorf("not a valid time format in Json Parser err: %w", err)
+		timeStr := time.Now().Format(r.timeFormat)
+		if timeStr == "invalid" {
+			return fmt.Errorf("not a valid time format in Regex Parser")
 		}
 	} else {
 		r.timeFormat = time.RFC3339
@@ -57,7 +57,7 @@ func (r *Regex) Process(event *internal.Event) bool {
 	}
 
 	// Extract named groups
-	decodedData := make(map[string]interface{})
+	decodedData := make(map[string]any)
 	for i, name := range r.re.SubexpNames() {
 		if i != 0 && name != "" {
 			value := matches[i]

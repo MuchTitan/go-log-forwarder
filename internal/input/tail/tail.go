@@ -1,9 +1,9 @@
-package input
+package tail
 
 import (
 	"bufio"
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,34 +14,28 @@ import (
 	"time"
 
 	"github.com/MuchTitan/go-log-forwarder/internal"
-	"github.com/MuchTitan/go-log-forwarder/internal/database"
+	"github.com/MuchTitan/go-log-forwarder/internal/input"
 	"github.com/MuchTitan/go-log-forwarder/internal/util"
 	"github.com/sirupsen/logrus"
 )
 
 type Tail struct {
-	name             string
-	glob             string
-	tag              string
-	cleanUpThreshold int
-	fileEventCh      chan string
-	fileStateCh      chan filestate
-	debounceTimers   map[string]*time.Timer
-	state            map[string]*filestate
-	fileStats        map[string]fileInfo
-	wg               sync.WaitGroup
-	mu               sync.Mutex
-	ctx              context.Context
-	cancel           context.CancelFunc
-	dbEnabled        bool
-	DbManager        *database.DBManager
-}
-
-type filestate struct {
-	name         string
-	offset       int64
-	inode        uint64
-	lastReadLine int
+	name               string
+	glob               string
+	dbFile             string
+	tag                string
+	cleanUpThreshold   int
+	fileEventCh        chan string
+	fileStateCh        chan fileState
+	debounceTimers     map[string]*time.Timer
+	state              map[string]*fileState
+	fileStats          map[string]fileInfo
+	wg                 sync.WaitGroup
+	mu                 sync.Mutex
+	ctx                context.Context
+	cancel             context.CancelFunc
+	stateSavingEnabled bool
+	repository         TailRepository
 }
 
 type fileInfo struct {
@@ -80,20 +74,52 @@ func (t *Tail) Init(config map[string]any) error {
 		t.cleanUpThreshold = 3
 	}
 
-	if t.DbManager != nil {
-		t.dbEnabled = true
-		if err := t.createDBTables(); err != nil {
+	if colors, exists := config["EnableDB"]; exists {
+		var ok bool
+		if t.stateSavingEnabled, ok = colors.(bool); !ok {
+			return errors.New("cant convert EnableDB parameter to bool")
+		}
+	}
+
+	if t.stateSavingEnabled {
+		if dbFile, ok := config["DBFile"].(string); ok {
+			t.dbFile = dbFile
+		} else {
+			t.dbFile = filepath.Join("./", fmt.Sprintf("%s-%s.db", t.tag, GetGlobRoot(t.glob)))
+		}
+	}
+
+	if t.stateSavingEnabled {
+		t.repository = NewSQLiteTailRepository(t.dbFile)
+		if err := t.repository.CreateTables(); err != nil {
 			return err
 		}
 	}
 
-	t.state = make(map[string]*filestate)
+	t.state = make(map[string]*fileState)
 	t.debounceTimers = make(map[string]*time.Timer)
 	t.fileEventCh = make(chan string, 1000)
-	t.fileStateCh = make(chan filestate)
+	t.fileStateCh = make(chan fileState)
 	t.wg = sync.WaitGroup{}
 	t.mu = sync.Mutex{}
 	return nil
+}
+
+func GetGlobRoot(glob string) string {
+	glob = filepath.Clean(glob)
+
+	wildcardIndex := strings.IndexAny(glob, "*?[{")
+	if wildcardIndex == -1 {
+		return glob
+	}
+
+	root := glob[:wildcardIndex]
+	lastSlash := strings.LastIndex(root, string(filepath.Separator))
+	if lastSlash == -1 {
+		return "."
+	}
+
+	return glob[:lastSlash]
 }
 
 func getFileID(info os.FileInfo) (uint64, error) {
@@ -105,10 +131,11 @@ func getFileID(info os.FileInfo) (uint64, error) {
 
 func (t *Tail) Start(parentCtx context.Context, output chan<- internal.Event) error {
 	t.wg.Add(1)
-	if t.dbEnabled {
+	if t.stateSavingEnabled {
 		t.wg.Add(1)
 		t.persistStates()
 	}
+
 	t.ctx, t.cancel = context.WithCancel(parentCtx)
 	go t.fileStatLoop(t.ctx)
 	logrus.WithField("glob", t.glob).Info("Starting Tail Input")
@@ -142,11 +169,16 @@ func (t *Tail) Exit() error {
 	t.wg.Wait()
 	close(t.fileEventCh)
 	close(t.fileStateCh)
-	deletedCount, err := t.cleanUpOldDbEntries()
+	deletedCount, err := t.repository.CleanupOldEntries(t.cleanUpThreshold)
 	if err != nil {
 		return err
 	}
 	logrus.Debugf("cleaned %d old entries in tail_files db", deletedCount)
+
+	if err := t.repository.Close(); err != nil {
+		logrus.WithError(err).Error("could not close db repostiory")
+	}
+
 	return nil
 }
 
@@ -303,28 +335,30 @@ func (t *Tail) readFile(path string, output chan<- internal.Event) error {
 		return fmt.Errorf("error getting file stats: %v", err)
 	}
 
-	sendFileState := func(state filestate) {
-		if t.dbEnabled {
+	sendFileState := func(state fileState) {
+		if t.stateSavingEnabled {
 			t.fileStateCh <- state
 		}
 	}
 
 	t.mu.Lock()
-	var currentFileState *filestate
+	var currentFileState *fileState
 	if state, exists := t.state[path]; !exists {
 		inode, err := getFileID(fileInfo)
 		if err != nil {
 			logrus.WithField("path", path).WithError(err).Error("could not get inode")
 		}
-		dbState, err := t.getFileStateFromDB(path, inode)
-		if err != nil {
-			currentFileState = &filestate{name: path, inode: inode}
-			logrus.WithFields(logrus.Fields{
-				"path":  path,
-				"inode": inode,
-			}).WithError(err).Trace("did not find a saved file state in db")
-		} else {
-			currentFileState = &dbState
+		currentFileState = &fileState{Path: path, InodeNumber: inode}
+		if t.stateSavingEnabled {
+			dbState, err := t.repository.GetFileState(path, inode)
+			if err != nil {
+				logrus.WithFields(logrus.Fields{
+					"path":  path,
+					"inode": inode,
+				}).WithError(err).Debug("did not find a saved file state in db")
+			} else {
+				currentFileState = dbState
+			}
 		}
 	} else {
 		currentFileState = state
@@ -332,16 +366,16 @@ func (t *Tail) readFile(path string, output chan<- internal.Event) error {
 	t.mu.Unlock()
 
 	// If we're at EOF and the file has been truncated, reset to beginning
-	if currentFileState.offset > fileInfo.Size() {
-		currentFileState.offset = 0
-		currentFileState.lastReadLine = 0
-		if err := t.deleteFileFromDB(currentFileState.name, currentFileState.inode); err != nil {
+	if currentFileState.Offset > fileInfo.Size() {
+		currentFileState.Offset = 0
+		currentFileState.LastReadLine = 0
+		if err := t.repository.DeleteFileState(currentFileState.Path, currentFileState.InodeNumber); err != nil {
 			logrus.WithError(err).Error("error during file state deleting")
 		}
 	}
 
 	// Seek to the saved offset
-	file.Seek(currentFileState.offset, io.SeekStart)
+	file.Seek(currentFileState.Offset, io.SeekStart)
 	reader := bufio.NewReader(file)
 
 	for {
@@ -349,7 +383,7 @@ func (t *Tail) readFile(path string, output chan<- internal.Event) error {
 		case <-t.ctx.Done():
 			currOffset, _ := file.Seek(0, io.SeekCurrent)
 			t.mu.Lock()
-			currentFileState.offset = currOffset
+			currentFileState.Offset = currOffset
 			t.state[path] = currentFileState
 			sendFileState(*t.state[path])
 			t.mu.Unlock()
@@ -362,7 +396,7 @@ func (t *Tail) readFile(path string, output chan<- internal.Event) error {
 			if err == io.EOF {
 				currOffset, _ := file.Seek(0, io.SeekCurrent)
 				t.mu.Lock()
-				currentFileState.offset = currOffset
+				currentFileState.Offset = currOffset
 				t.state[path] = currentFileState
 				sendFileState(*t.state[path])
 				t.mu.Unlock()
@@ -372,7 +406,7 @@ func (t *Tail) readFile(path string, output chan<- internal.Event) error {
 		}
 
 		line = strings.TrimSpace(line)
-		currentFileState.lastReadLine++
+		currentFileState.LastReadLine++
 
 		if len(line) == 0 {
 			continue
@@ -383,10 +417,10 @@ func (t *Tail) readFile(path string, output chan<- internal.Event) error {
 			RawData:   line,
 			Metadata: internal.Metadata{
 				Source:  path,
-				LineNum: currentFileState.lastReadLine,
+				LineNum: currentFileState.LastReadLine,
 			},
 		}
-		AddMetadata(&event, t)
+		input.AddMetadata(&event, t)
 
 		select {
 		case output <- event:
@@ -396,65 +430,9 @@ func (t *Tail) readFile(path string, output chan<- internal.Event) error {
 	}
 }
 
-func (t *Tail) createDBTables() error {
-	query := `CREATE TABLE IF NOT EXISTS tail_files (
-        path TEXT NOT NULL,
-        offset INTEGER NOT NULL,
-        lastReadLine INTEGER NOT NULL,
-        inodenumber INTEGER NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (path, inodenumber)
-    )`
-	_, err := t.DbManager.ExecuteWrite(query)
-	if err != nil {
-		return fmt.Errorf("could not create db table tail_files: %v", err)
-	}
-	return nil
-}
-
 func (t *Tail) persistStates() {
 	ticker := time.NewTicker(time.Millisecond * 100)
-	var updates []filestate
-	persistStates := func(tx *sql.Tx) error {
-		if len(updates) == 0 {
-			return nil
-		}
-
-		stmt, err := tx.Prepare(`
-            INSERT OR REPLACE INTO tail_files (path, offset, lastReadLine, inodenumber, updated_at) VALUES ($1,$2,$3,$4,$5)
-			`)
-		if err != nil {
-			logrus.WithError(err).Error("error during db transaction preparation")
-			tx.Rollback()
-		}
-
-		for _, update := range updates {
-			_, err := stmt.Exec(
-				update.name,
-				update.offset,
-				update.lastReadLine,
-				update.inode,
-				time.Now(),
-			)
-			if err != nil {
-				logrus.WithError(err).Error("error during db statement execution")
-				continue
-			}
-		}
-
-		stmt.Close()
-		err = tx.Commit()
-		if err != nil {
-			logrus.WithError(err).Error("error during db transaction commit")
-			if err := tx.Rollback(); err != nil {
-				logrus.WithError(err).Error("could not rollback db transaction")
-			}
-		}
-
-		updates = updates[:0] // Clear the slice
-		return nil
-	}
+	var updates []fileState
 
 	go func() {
 		defer t.wg.Done()
@@ -462,44 +440,18 @@ func (t *Tail) persistStates() {
 		for {
 			select {
 			case <-t.ctx.Done():
-				t.DbManager.ExecuteWriteTx(persistStates)
+				if len(updates) > 0 {
+					t.repository.BatchUpsertFileStates(updates)
+				}
 				return
 			case state := <-t.fileStateCh:
 				updates = append(updates, state)
 			case <-ticker.C:
-				t.DbManager.ExecuteWriteTx(persistStates)
+				if len(updates) > 0 {
+					t.repository.BatchUpsertFileStates(updates)
+					updates = updates[:0]
+				}
 			}
 		}
 	}()
-}
-
-func (t *Tail) cleanUpOldDbEntries() (int64, error) {
-	cutoffDate := time.Now().AddDate(0, 0, -t.cleanUpThreshold).Format("2006-01-02 15:04:05")
-	query := "DELETE FROM tail_files WHERE updated_at < datetime($1)"
-	res, err := t.DbManager.ExecuteWrite(query, cutoffDate)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
-}
-
-func (t *Tail) deleteFileFromDB(path string, inode uint64) error {
-	query := `DELETE FROM tail_files WHERE path = $1 AND inodenumber = $2`
-	_, err := t.DbManager.ExecuteWrite(query, path, inode)
-	if err != nil {
-		return fmt.Errorf("could not delete file entry from tail_files: %v", err)
-	}
-
-	return nil
-}
-
-func (t *Tail) getFileStateFromDB(path string, inode uint64) (filestate, error) {
-	query := `SELECT path, offset, lastReadLine, inodenumber from tail_files WHERE path = $1 AND inodenumber = $2`
-	row := t.DbManager.QueryRow(query, path, inode)
-	currentState := filestate{}
-	err := row.Scan(&currentState.name, &currentState.offset, &currentState.lastReadLine, &currentState.inode)
-	if err != nil {
-		return filestate{}, fmt.Errorf("could not parse row into struct: %v", err)
-	}
-	return currentState, nil
 }

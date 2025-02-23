@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MuchTitan/go-log-forwarder/internal/database"
 	"github.com/MuchTitan/go-log-forwarder/internal/engine"
 	"github.com/MuchTitan/go-log-forwarder/internal/filter"
 	"github.com/MuchTitan/go-log-forwarder/internal/input"
+	"github.com/MuchTitan/go-log-forwarder/internal/input/tail"
 	"github.com/MuchTitan/go-log-forwarder/internal/output"
 	"github.com/MuchTitan/go-log-forwarder/internal/parser"
 	"github.com/sirupsen/logrus"
@@ -20,7 +20,7 @@ import (
 
 // Config represents the complete configuration
 type Config struct {
-	System  SystemConfig             `yaml:"System"`
+	System  SystemConfig     `yaml:"System"`
 	Inputs  []map[string]any `yaml:"Inputs"`
 	Parsers []map[string]any `yaml:"Parsers"`
 	Filters []map[string]any `yaml:"Filters"`
@@ -53,8 +53,7 @@ func (c *SystemConfig) GetLogLevel() logrus.Level {
 // Engine is extended to include configuration
 type PluginEngine struct {
 	*engine.Engine
-	config    Config
-	DbManager *database.DBManager
+	config Config
 }
 
 // NewPluginEngine creates a new engine with configuration
@@ -66,12 +65,6 @@ func NewPluginEngine(configPath string) (*PluginEngine, error) {
 	if err := engine.loadConfig(configPath); err != nil {
 		return nil, err
 	}
-
-	dbManager, err := database.NewDBManager(engine.config.System.DBFile)
-	if err != nil {
-		return nil, err
-	}
-	engine.DbManager = dbManager
 
 	if err := engine.initializePlugins(); err != nil {
 		return nil, err
@@ -163,9 +156,7 @@ func (e *PluginEngine) initializeInput(config map[string]any) error {
 
 	switch strings.ToLower(config["Type"].(string)) {
 	case "tail":
-		inputObject = &input.Tail{
-			DbManager: e.DbManager,
-		}
+		inputObject = &tail.Tail{}
 	case "tcp":
 		inputObject = &input.TCP{}
 	case "http":

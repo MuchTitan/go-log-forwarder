@@ -38,12 +38,6 @@ type Tail struct {
 	repository         TailRepository
 }
 
-type fileInfo struct {
-	modTime time.Time
-	size    int64
-	inode   uint64
-}
-
 func (t *Tail) Name() string {
 	return t.name
 }

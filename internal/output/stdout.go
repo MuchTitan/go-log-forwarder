@@ -80,6 +80,9 @@ func (s *Stdout) Write(events []internal.Event) error {
 	defer s.mutex.Unlock()
 
 	for _, event := range events {
+		if !util.TagMatch(event.Metadata.Tag, s.match) {
+			return nil
+		}
 		var output string
 		var err error
 

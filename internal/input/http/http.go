@@ -1,4 +1,4 @@
-package input
+package http
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/input"
 	"github.com/MuchTitan/go-log-forwarder/internal/util"
 	"github.com/sirupsen/logrus"
 )
@@ -140,7 +141,7 @@ func (h *InHTTP) handleReq(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 
-		AddMetadata(&event, h)
+		input.AddMetadata(&event, h)
 		logLines <- event
 	}
 
@@ -154,6 +155,7 @@ func (h *InHTTP) Start(ctx context.Context, output chan<- internal.Event) error 
 	http.HandleFunc("/", h.handleReq)
 	go func() {
 		logrus.WithField("Addr", h.addr).Info("Starting Http Input")
+		h.server.Addr = h.addr
 		if err := h.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logrus.WithField("Addr", h.addr).WithError(err).Error("error during http input")
 		}

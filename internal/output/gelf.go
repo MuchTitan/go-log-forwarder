@@ -89,6 +89,10 @@ func (g *GELF) setupWriter() error {
 
 func (g *GELF) Write(events []internal.Event) error {
 	for _, event := range events {
+		if !util.TagMatch(event.Metadata.Tag, g.match) {
+			continue
+		}
+
 		var jsonData string
 		if event.ParsedData != nil {
 			tmp, _ := json.Marshal(event.ParsedData)

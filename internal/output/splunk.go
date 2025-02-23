@@ -38,12 +38,12 @@ func (s *Splunk) MatchTag(inputTag string) bool {
 }
 
 type splunkEvent struct {
-	Event      any `json:"event"`
-	Index      string      `json:"index"`
-	Source     string      `json:"source"`
-	Sourcetype string      `json:"sourcetype"`
-	Host       string      `json:"host"`
-	Time       int64       `json:"time"`
+	Event      any    `json:"event"`
+	Index      string `json:"index"`
+	Source     string `json:"source"`
+	Sourcetype string `json:"sourcetype"`
+	Host       string `json:"host"`
+	Time       int64  `json:"time"`
 }
 
 func (s *Splunk) Name() string {
@@ -151,6 +151,9 @@ func (s *Splunk) Write(events []internal.Event) error {
 	// Convert all events to splunkEvents first
 	splunkEvents := make([]splunkEvent, 0, len(events))
 	for _, event := range events {
+		if !util.TagMatch(event.Metadata.Tag, s.match) {
+			continue
+		}
 		splunkevent := s.newSplunkEvent(event)
 		if splunkevent.Event == nil {
 			continue

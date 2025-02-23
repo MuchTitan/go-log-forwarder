@@ -10,7 +10,9 @@ import (
 	"github.com/MuchTitan/go-log-forwarder/internal/engine"
 	"github.com/MuchTitan/go-log-forwarder/internal/filter"
 	"github.com/MuchTitan/go-log-forwarder/internal/input"
+	"github.com/MuchTitan/go-log-forwarder/internal/input/http"
 	"github.com/MuchTitan/go-log-forwarder/internal/input/tail"
+	"github.com/MuchTitan/go-log-forwarder/internal/input/tcp"
 	"github.com/MuchTitan/go-log-forwarder/internal/output"
 	"github.com/MuchTitan/go-log-forwarder/internal/parser"
 	"github.com/sirupsen/logrus"
@@ -158,9 +160,9 @@ func (e *PluginEngine) initializeInput(config map[string]any) error {
 	case "tail":
 		inputObject = &tail.Tail{}
 	case "tcp":
-		inputObject = &input.TCP{}
+		inputObject = &tcp.TCP{}
 	case "http":
-		inputObject = &input.InHTTP{}
+		inputObject = &http.InHTTP{}
 	default:
 		return fmt.Errorf("unknown input type: %s", config["Type"])
 	}

@@ -1,4 +1,4 @@
-package input
+package tcp
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/input"
 	"github.com/MuchTitan/go-log-forwarder/internal/util"
 	"github.com/sirupsen/logrus"
 )
@@ -34,36 +35,6 @@ type TCP struct {
 	wg             sync.WaitGroup
 	ctx            context.Context
 	cancel         context.CancelFunc
-}
-
-type connState struct {
-	conn     net.Conn
-	closed   bool
-	closeMux sync.Mutex
-}
-
-func newConnState(conn net.Conn) *connState {
-	return &connState{
-		conn:   conn,
-		closed: false,
-	}
-}
-
-func (cs *connState) Close() error {
-	cs.closeMux.Lock()
-	defer cs.closeMux.Unlock()
-
-	if !cs.closed {
-		cs.closed = true
-		return cs.conn.Close()
-	}
-	return nil
-}
-
-func (cs *connState) IsClosed() bool {
-	cs.closeMux.Lock()
-	defer cs.closeMux.Unlock()
-	return cs.closed
 }
 
 func (t *TCP) Name() string {
@@ -223,7 +194,7 @@ func (t *TCP) handleConnection(cs *connState, output chan<- internal.Event) {
 						LineNum: linenumber,
 					},
 				}
-				AddMetadata(&event, t)
+				input.AddMetadata(&event, t)
 
 				select {
 				case output <- event:
@@ -296,18 +267,19 @@ func (t *TCP) Exit() error {
 		t.cancel()
 	}
 
+	t.activeConns.Range(func(key, value any) bool {
+		if cs, ok := key.(*connState); ok {
+			logrus.Infof("Closing Connection: %s", cs.conn.LocalAddr())
+			cs.Close()
+		}
+		return true
+	})
+
 	if t.listener != nil {
 		if err := t.listener.Close(); err != nil {
 			logrus.WithError(err).Error("could not close tcp listener")
 		}
 	}
-
-	t.activeConns.Range(func(key, value any) bool {
-		if cs, ok := key.(*connState); ok {
-			cs.Close()
-		}
-		return true
-	})
 
 	t.wg.Wait()
 	return nil

@@ -1,4 +1,4 @@
-package output
+package outputgelf
 
 import (
 	"encoding/json"

@@ -1,4 +1,4 @@
-package filter
+package filtergrep
 
 import (
 	"encoding/json"

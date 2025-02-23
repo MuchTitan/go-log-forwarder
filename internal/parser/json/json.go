@@ -1,4 +1,4 @@
-package parser
+package parserjson
 
 import (
 	"encoding/json"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/parser"
 	"github.com/MuchTitan/go-log-forwarder/internal/util"
 )
 
@@ -49,7 +50,7 @@ func (j *Json) Process(event *internal.Event) bool {
 	event.ParsedData = parsedData
 
 	if j.timeFormat != "" && j.timeKey != "" {
-		ExtractTime(event, j.timeKey, j.timeFormat)
+		parser.ExtractTime(event, j.timeKey, j.timeFormat)
 	}
 	return true
 }

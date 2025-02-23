@@ -1,4 +1,4 @@
-package output
+package outputcounter
 
 import (
 	"encoding/json"

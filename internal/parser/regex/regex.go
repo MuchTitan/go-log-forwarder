@@ -1,4 +1,4 @@
-package parser
+package parserregex
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/MuchTitan/go-log-forwarder/internal"
+	"github.com/MuchTitan/go-log-forwarder/internal/parser"
 	"github.com/MuchTitan/go-log-forwarder/internal/util"
 )
 
@@ -74,7 +75,7 @@ func (r *Regex) Process(event *internal.Event) bool {
 	event.ParsedData = decodedData
 
 	if r.timeFormat != "" && r.timeKey != "" {
-		ExtractTime(event, r.timeKey, r.timeFormat)
+		parser.ExtractTime(event, r.timeKey, r.timeFormat)
 	}
 
 	return true

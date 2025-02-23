@@ -1,4 +1,4 @@
-package tail
+package inputtail
 
 import (
 	"bufio"
@@ -163,6 +163,11 @@ func (t *Tail) Exit() error {
 	t.wg.Wait()
 	close(t.fileEventCh)
 	close(t.fileStateCh)
+
+	if !t.stateSavingEnabled {
+		return nil
+	}
+
 	deletedCount, err := t.repository.CleanupOldEntries(t.cleanUpThreshold)
 	if err != nil {
 		return err

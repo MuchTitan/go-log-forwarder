@@ -34,7 +34,11 @@ func (r *Regex) Init(config map[string]any) error {
 		return err
 	}
 
-	r.allowEmpty = config["AllowEmpty"] == true
+	if allowEmpty, ok := config["AllowEmpty"].(bool); ok {
+		r.allowEmpty = allowEmpty
+	} else {
+		r.allowEmpty = true
+	}
 
 	r.timeKey = util.MustString(config["TimeKey"])
 

@@ -2,9 +2,9 @@ package outputstdout
 
 import (
 	"bytes"
-	"html/template"
 	"os"
 	"testing"
+	"text/template"
 	"time"
 
 	"github.com/MuchTitan/go-log-forwarder/internal"

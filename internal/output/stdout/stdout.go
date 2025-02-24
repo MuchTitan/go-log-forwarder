@@ -4,15 +4,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"os"
+	"slices"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	"github.com/MuchTitan/go-log-forwarder/internal"
 	"github.com/MuchTitan/go-log-forwarder/internal/util"
 )
+
+var ValidFormats = []string{"json", "plain", "template"}
 
 type Stdout struct {
 	name       string
@@ -35,18 +38,22 @@ func (s *Stdout) Init(config map[string]any) error {
 		s.name = "stdout"
 	}
 
-	s.format = util.MustString(config["Format"])
-	if s.format == "" {
-		s.format = "json"
-	}
-
 	s.match = util.MustString(config["Match"])
 	if s.match == "" {
 		s.match = "*"
 	}
 
+	s.format = util.MustString(config["Format"])
+	if s.format == "" {
+		s.format = "json"
+	}
+
+	if !slices.Contains(ValidFormats, s.format) {
+		return fmt.Errorf("not a valid format for stdout provided: %s", s.format)
+	}
+
 	// Configure JSON indentation
-	if indent, exists := config["Json_indent"]; exists {
+	if indent, exists := config["JsonIndent"]; exists && s.format == "json" {
 		var ok bool
 		if s.jsonIndent, ok = indent.(bool); !ok {
 			return errors.New("cant convert json indent parameter to bool")

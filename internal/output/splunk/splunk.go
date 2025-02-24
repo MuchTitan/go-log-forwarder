@@ -75,7 +75,7 @@ func (s *Splunk) Init(config map[string]any) error {
 
 	s.host = util.MustString(config["Host"])
 	if s.host == "" {
-		s.host = "localhost"
+		s.host = "127.0.0.1"
 	}
 
 	s.eventHost = util.MustString(config["EventHost"])
@@ -96,6 +96,14 @@ func (s *Splunk) Init(config map[string]any) error {
 		}
 	} else {
 		s.port = 8088
+	}
+
+	if eventFieldsTmp, exists := config["EventFields"]; exists {
+		if eventFields, ok := eventFieldsTmp.(map[string]any); ok {
+			s.eventFields = eventFields
+		} else {
+			return errors.New("could not convert eventFields to map")
+		}
 	}
 
 	s.compress = config["Compress"] == true

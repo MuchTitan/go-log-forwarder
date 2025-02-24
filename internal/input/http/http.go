@@ -53,7 +53,7 @@ func (h *InHTTP) Init(config map[string]any) error {
 		h.tag = "http"
 	}
 
-	h.listenAddr = util.MustString(config["Listen"])
+	h.listenAddr = util.MustString(config["ListenAddr"])
 	if h.listenAddr == "" {
 		h.listenAddr = "0.0.0.0"
 	}

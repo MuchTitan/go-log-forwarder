@@ -14,7 +14,7 @@ type Grep struct {
 	name    string
 	match   string
 	op      string   // Available Operation are "and" and "or"
-	regex   []string // Postitive Match sends the log
+	include []string // Postitive Match sends the log
 	exclude []string // Postitive Match doesent send the log
 }
 
@@ -42,9 +42,9 @@ func (g *Grep) Init(config map[string]any) error {
 		g.match = "*"
 	}
 
-	if regex, exists := config["Regex"]; exists {
+	if regex, exists := config["Include"]; exists {
 		var ok bool
-		if g.regex, ok = regex.([]string); !ok {
+		if g.include, ok = regex.([]string); !ok {
 			return errors.New("cant convert regex patterns to string array")
 		}
 	}
@@ -57,7 +57,11 @@ func (g *Grep) Init(config map[string]any) error {
 	}
 
 	if g.op != "and" && g.op == "or" {
-		return fmt.Errorf("unsupported logic operator '%s' in Grep Filter", g.op)
+		return fmt.Errorf("unsupported logic operator '%s' in grep filter", g.op)
+	}
+
+	if len(g.exclude) == 0 && len(g.include) == 0 {
+		return errors.New("not exclude or include regex pattern provided for the grep filter")
 	}
 
 	return nil
@@ -66,7 +70,7 @@ func (g *Grep) Init(config map[string]any) error {
 func (g *Grep) Process(data *internal.Event) (*internal.Event, error) {
 	matches := 0
 	// Check each pattern
-	for _, regexString := range g.regex {
+	for _, regexString := range g.include {
 		pattern, err := regexp.Compile(regexString)
 		if err != nil {
 			data = nil
@@ -98,7 +102,7 @@ func (g *Grep) Process(data *internal.Event) (*internal.Event, error) {
 		}
 	}
 
-	if g.op == "and" && matches != (len(g.regex)+len(g.exclude)) {
+	if g.op == "and" && matches != (len(g.include)+len(g.exclude)) {
 		data = nil
 		return data, nil
 	}

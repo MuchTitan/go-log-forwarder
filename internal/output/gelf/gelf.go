@@ -14,13 +14,14 @@ import (
 )
 
 type GELF struct {
-	name   string
-	match  string
-	host   string
-	port   int
-	mode   string
-	buffer []*gelf.Message
-	writer gelf.Writer
+	name    string
+	match   string
+	host    string
+	hostKey string
+	port    int
+	mode    string
+	buffer  []*gelf.Message
+	writer  gelf.Writer
 }
 
 func (g *GELF) Name() string {
@@ -43,12 +44,17 @@ func (g *GELF) Init(config map[string]any) error {
 		g.host = "127.0.0.1"
 	}
 
+	g.hostKey = util.MustString(config["HostKey"])
+	if g.hostKey == "" {
+		return errors.New("please provided a valid HostKey for the geld output")
+	}
+
 	g.mode = util.MustString(config["Mode"])
 	if g.mode == "" {
 		g.mode = "udp"
 	}
 	if g.mode != "udp" && g.mode != "tcp" {
-		return fmt.Errorf("mode: '%v' is not implemented", g.mode)
+		return fmt.Errorf("mode: '%v' is not supported", g.mode)
 	}
 
 	if portStr := config["Port"]; portStr != "" {
@@ -103,7 +109,7 @@ func (g *GELF) Write(events []internal.Event) error {
 
 		msg := gelf.Message{
 			Version:  "1.1",
-			Host:     "github.com/MuchTitan/go-log-forwarder",
+			Host:     g.hostKey,
 			Short:    jsonData,
 			TimeUnix: float64(event.Timestamp.Unix()),
 			Level:    gelf.LOG_INFO, // Info level by default

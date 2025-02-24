@@ -18,8 +18,8 @@ func TestGrepProcess(t *testing.T) {
 		{
 			name: "matching single regex with 'or'",
 			grep: &Grep{
-				op:    "or",
-				regex: []string{"error.*"},
+				op:      "or",
+				include: []string{"error.*"},
 			},
 			input: &internal.Event{
 				ParsedData: map[string]any{
@@ -32,8 +32,8 @@ func TestGrepProcess(t *testing.T) {
 		{
 			name: "non-matching regex with 'and'",
 			grep: &Grep{
-				op:    "and",
-				regex: []string{"error.*", "critical.*"},
+				op:      "and",
+				include: []string{"error.*", "critical.*"},
 			},
 			input: &internal.Event{
 				ParsedData: map[string]any{
@@ -60,8 +60,8 @@ func TestGrepProcess(t *testing.T) {
 		{
 			name: "invalid regex pattern",
 			grep: &Grep{
-				op:    "or",
-				regex: []string{"[invalid"},
+				op:      "or",
+				include: []string{"[invalid"},
 			},
 			input: &internal.Event{
 				ParsedData: map[string]any{

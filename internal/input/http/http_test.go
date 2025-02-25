@@ -41,7 +41,7 @@ func TestInHTTP_Init(t *testing.T) {
 			config: map[string]any{
 				"Name":       "custom_http",
 				"Tag":        "custom_tag",
-				"Listen":     "127.0.0.1",
+				"ListenAddr": "127.0.0.1",
 				"Port":       9090,
 				"BufferSize": int64(1024 * 1024),
 			},
@@ -186,10 +186,13 @@ func TestInHTTP_HandleReq(t *testing.T) {
 
 func TestInHTTP_StartAndExit(t *testing.T) {
 	h := &InHTTP{
-		addr:       "localhost:42069", // Use random port
+		server: &http.Server{
+			Addr:        "localhost:42069",
+			Handler:     http.DefaultServeMux,
+			ReadTimeout: time.Second * 30,
+		},
 		bufferSize: DefaultHttpBufferSize,
 		wg:         &sync.WaitGroup{},
-		server:     &http.Server{},
 	}
 
 	output := make(chan internal.Event, 1000)

@@ -42,6 +42,7 @@ func TestRegexParser_Init(t *testing.T) {
 			wantError: false,
 			wantParser: Regex{
 				name:       "regex",
+				allowEmpty: true,
 				timeFormat: time.RFC3339,
 			},
 		},

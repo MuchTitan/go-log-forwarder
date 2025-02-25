@@ -40,7 +40,6 @@ type Config struct {
 type SystemConfig struct {
 	LogLevel string `yaml:"logLevel"`
 	LogFile  string `yaml:"logFile"`
-	DBFile   string `yaml:"dbFile"`
 }
 
 func (c *SystemConfig) GetLogLevel() logrus.Level {

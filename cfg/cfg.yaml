@@ -1,13 +1,13 @@
 System:
   logLevel: INFO
   logFile: "./forwarder.log"
-  dbFile: "state.db"
 
 Inputs:
   - Type: "tail"
     Tag: "app-log"
     Glob: "./logs/file*.log"
-    EnableDB: false
+    EnableDB: true
+    DBFile: "./state.db"
 
   - Type: "http"
     Tag: "http-log"

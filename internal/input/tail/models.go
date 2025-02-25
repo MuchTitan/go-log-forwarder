@@ -1,6 +1,8 @@
 package inputtail
 
-import "time"
+import (
+	"time"
+)
 
 type fileState struct {
 	Path         string
@@ -15,4 +17,18 @@ type fileInfo struct {
 	modTime time.Time
 	size    int64
 	inode   uint64
+}
+
+type fileEventType int
+
+const (
+	FILEEVENT_CREATE fileEventType = iota
+	FILEEVENT_WRITE
+	FILEEVENT_DELETE
+)
+
+type fileEvent struct {
+	path      string
+	inode     uint64
+	eventType fileEventType
 }

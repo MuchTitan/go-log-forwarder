@@ -25,7 +25,7 @@ type Tail struct {
 	dbFile             string
 	tag                string
 	cleanUpThreshold   int
-	fileEventCh        chan string
+	fileEventCh        chan fileEvent
 	fileStateCh        chan fileState
 	debounceTimers     map[string]*time.Timer
 	state              map[string]*fileState
@@ -92,7 +92,7 @@ func (t *Tail) Init(config map[string]any) error {
 
 	t.state = make(map[string]*fileState)
 	t.debounceTimers = make(map[string]*time.Timer)
-	t.fileEventCh = make(chan string, 1000)
+	t.fileEventCh = make(chan fileEvent, 300)
 	t.fileStateCh = make(chan fileState)
 	t.wg = sync.WaitGroup{}
 	t.mu = sync.Mutex{}
@@ -144,15 +144,38 @@ func (t *Tail) Start(parentCtx context.Context, output chan<- internal.Event) er
 				t.mu.Unlock()
 				return
 
-			case path, ok := <-t.fileEventCh:
+			case event, ok := <-t.fileEventCh:
 				if !ok {
 					return
 				}
-				go t.readFileWithDebounce(path, output)
+				switch event.eventType {
+				case FILEEVENT_CREATE:
+					go t.readFileWithDebounce(event.path, output)
+				case FILEEVENT_WRITE:
+					go t.readFileWithDebounce(event.path, output)
+				case FILEEVENT_DELETE:
+					logrus.Infof("Got file event: %+v", event)
+					go t.cleanupDeletedFile(event.path, event.inode)
+				}
 			}
 		}
 	}()
 	return nil
+}
+
+func (t *Tail) cleanupDeletedFile(path string, inode uint64) {
+	t.mu.Lock()
+	delete(t.state, path)
+	t.mu.Unlock()
+
+	if inode == 0 {
+		logrus.WithField("path", path).Error("no inode provided in db cleanup")
+		return
+	}
+
+	if err := t.repository.DeleteFileState(path, inode); err != nil {
+		logrus.WithError(err).Warn("could not delete file state from db")
+	}
 }
 
 func (t *Tail) Exit() error {
@@ -168,12 +191,6 @@ func (t *Tail) Exit() error {
 		return nil
 	}
 
-	deletedCount, err := t.repository.CleanupOldEntries(t.cleanUpThreshold)
-	if err != nil {
-		return err
-	}
-	logrus.Debugf("cleaned %d old entries in tail_files db", deletedCount)
-
 	if err := t.repository.Close(); err != nil {
 		logrus.WithError(err).Error("could not close db repostiory")
 	}
@@ -188,9 +205,9 @@ func (t *Tail) fileStatLoop(ctx context.Context) {
 
 	t.fileStats = make(map[string]fileInfo)
 
-	sendFileEvent := func(path string) {
+	sendFileEvent := func(event fileEvent) {
 		select {
-		case t.fileEventCh <- path:
+		case t.fileEventCh <- event:
 		default:
 			logrus.Warn("file event overflow")
 		}
@@ -226,7 +243,7 @@ func (t *Tail) fileStatLoop(ctx context.Context) {
 		if !exists {
 			// New file
 			t.fileStats[absPath] = currentInfo
-			sendFileEvent(absPath)
+			sendFileEvent(fileEvent{path: absPath, eventType: FILEEVENT_CREATE})
 			return nil
 		}
 
@@ -240,11 +257,12 @@ func (t *Tail) fileStatLoop(ctx context.Context) {
 			t.mu.Unlock()
 
 			t.fileStats[absPath] = currentInfo
-			sendFileEvent(absPath)
+			sendFileEvent(fileEvent{path: absPath, eventType: FILEEVENT_DELETE, inode: currentInfo.inode})
+			sendFileEvent(fileEvent{path: absPath, eventType: FILEEVENT_CREATE})
 		} else if currentInfo.size > prevInfo.size {
 			// File has grown
 			t.fileStats[absPath] = currentInfo
-			sendFileEvent(absPath)
+			sendFileEvent(fileEvent{path: absPath, eventType: FILEEVENT_WRITE})
 		}
 
 		return nil
@@ -269,12 +287,35 @@ func (t *Tail) fileStatLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			matches, err := filepath.Glob(t.glob)
+			currentMatches, err := filepath.Glob(t.glob)
 			if err != nil {
 				logrus.WithError(err).Warn("could not get files for glob")
 				continue
 			}
-			for _, path := range matches {
+
+			// Convert currentMatches to a set for easier lookup
+			currentFiles := make(map[string]bool)
+			for _, path := range currentMatches {
+				absPath, err := filepath.Abs(path)
+				if err != nil {
+					logrus.WithError(err).Warn("could not get absolute path")
+					continue
+				}
+				currentFiles[absPath] = true
+			}
+
+			// Check for deleted files
+			for absPath := range t.fileStats {
+				if !currentFiles[absPath] {
+					// File no longer exists, send delete event
+					inode := t.fileStats[absPath].inode
+					sendFileEvent(fileEvent{path: absPath, eventType: FILEEVENT_DELETE, inode: inode})
+					delete(t.fileStats, absPath) // Remove from tracked files
+				}
+			}
+
+			// Process current files
+			for _, path := range currentMatches {
 				if err := processFile(path); err != nil {
 					logrus.WithError(err).Warn("error processing file")
 				}

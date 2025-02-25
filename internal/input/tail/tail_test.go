@@ -184,7 +184,7 @@ func TestTail_FileStatLoop(t *testing.T) {
 
 	tail := &Tail{
 		glob:        filepath.Join(tmpDir, "*.log"),
-		fileEventCh: make(chan string, 10),
+		fileEventCh: make(chan fileEvent, 10),
 		fileStats:   make(map[string]fileInfo),
 		ctx:         context.Background(),
 	}

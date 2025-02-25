@@ -12,7 +12,6 @@ type TailRepository interface {
 	CreateTables() error
 	GetFileState(path string, inode uint64) (*fileState, error)
 	DeleteFileState(path string, inode uint64) error
-	CleanupOldEntries(thresholdDays int) (int64, error)
 	BatchUpsertFileStates(states []fileState) error
 	Close() error
 }
@@ -118,17 +117,6 @@ func (r *SQLiteTailRepository) DeleteFileState(path string, inode uint64) error 
 	query := `DELETE FROM tail_files WHERE path = $1 AND inodenumber = $2`
 	_, err := r.db.ExecuteWrite(query, path, inode)
 	return err
-}
-
-func (r *SQLiteTailRepository) CleanupOldEntries(thresholdDays int) (int64, error) {
-	cutoffDate := time.Now().AddDate(0, 0, -thresholdDays).Format("2006-01-02 15:04:05")
-	query := "DELETE FROM tail_files WHERE updated_at < datetime($1)"
-
-	res, err := r.db.ExecuteWrite(query, cutoffDate)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
 }
 
 func (r *SQLiteTailRepository) Close() error {

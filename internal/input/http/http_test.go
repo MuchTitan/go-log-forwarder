@@ -185,28 +185,26 @@ func TestInHTTP_HandleReq(t *testing.T) {
 }
 
 func TestInHTTP_StartAndExit(t *testing.T) {
-	h := &InHTTP{
-		server: &http.Server{
-			Addr:        "localhost:42069",
-			Handler:     http.DefaultServeMux,
-			ReadTimeout: time.Second * 30,
-		},
-		bufferSize: DefaultHttpBufferSize,
-		wg:         &sync.WaitGroup{},
+	config := map[string]any{
+		"ListenAddr": "localhost",
+		"Port":       42069,
 	}
+	h := &InHTTP{}
+	err := h.Init(config)
+	assert.NoError(t, err)
 
 	output := make(chan internal.Event, 1000)
 	ctx := context.Background()
 
 	// Start server
-	err := h.Start(ctx, output)
+	err = h.Start(ctx, output)
 	assert.NoError(t, err)
 
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
 
 	// Test server is running by sending request
-	resp, err := http.Post("http://"+h.server.Addr, "appliation/json", bytes.NewBufferString("test"))
+	resp, err := http.Post("http://"+h.server.Addr, "text/plain", bytes.NewBufferString("test"))
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()

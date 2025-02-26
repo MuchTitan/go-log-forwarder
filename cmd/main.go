@@ -40,4 +40,7 @@ func main() {
 
 	logrus.Info("Stopping log forwarder")
 	engine.Stop()
+	if err := engine.DbManager.Close(); err != nil {
+		logrus.WithError(err).Errorf("could not close the database")
+	}
 }

@@ -1,6 +1,7 @@
 System:
   logLevel: INFO
   logFile: "./forwarder.log"
+  dbFile: "state.db"
 
 Inputs:
   - Type: "tail"

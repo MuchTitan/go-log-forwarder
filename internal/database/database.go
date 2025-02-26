@@ -72,4 +72,3 @@ func (dm *DBManager) Query(query string, args ...any) (*sql.Rows, error) {
 func (dm *DBManager) Close() error {
 	return dm.db.Close()
 }
-

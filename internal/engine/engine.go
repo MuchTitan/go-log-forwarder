@@ -137,7 +137,7 @@ func (e *Engine) processRecords() {
 func (e *Engine) flush(records []internal.Event) {
 	for _, output := range e.outputs {
 		if err := output.Write(records); err != nil {
-			logrus.Error("[Engine] Coundnt write to output", "writer", output.Name(), "error", err)
+			logrus.WithError(err).WithField("writer", output.Name()).Error("[Engine] Coundnt write to output")
 		}
 	}
 }

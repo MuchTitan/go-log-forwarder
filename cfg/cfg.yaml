@@ -7,10 +7,20 @@ Inputs:
   - Type: "tail"
     Tag: "app-log"
     Glob: "./logs/file*.log"
+    EnableDB: true
+    DBFile: "./state.db"
+
+  - Type: "http"
+    Tag: "http-log"
 
 Parsers:
   - Type: "json"
 
 Outputs:
+  - Type: stdout
+    Match: "http-log"
+    Format: json
+    Colors: true
+
   - Type: counter
-    Match: "*"
+    Match: "app-log"

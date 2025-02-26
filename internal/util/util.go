@@ -2,6 +2,7 @@ package util
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 )
 
@@ -43,14 +44,12 @@ func TagMatch(inputTag, match string) bool {
 	return true
 }
 
-func MergeMaps(m1, m2 map[string]interface{}) map[string]interface{} {
-	for k, v := range m2 {
-		m1[k] = v
-	}
+func MergeMaps(m1, m2 map[string]any) map[string]any {
+	maps.Copy(m1, m2)
 	return m1
 }
 
-func MustString(data interface{}) string {
+func MustString(data any) string {
 	if data == nil {
 		return ""
 	}

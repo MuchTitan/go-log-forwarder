@@ -7,12 +7,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MuchTitan/go-log-forwarder/internal/database"
 	"github.com/MuchTitan/go-log-forwarder/internal/engine"
 	"github.com/MuchTitan/go-log-forwarder/internal/filter"
+	filtergrep "github.com/MuchTitan/go-log-forwarder/internal/filter/grep"
 	"github.com/MuchTitan/go-log-forwarder/internal/input"
+	inputhttp "github.com/MuchTitan/go-log-forwarder/internal/input/http"
+	inputtail "github.com/MuchTitan/go-log-forwarder/internal/input/tail"
+	inputtcp "github.com/MuchTitan/go-log-forwarder/internal/input/tcp"
 	"github.com/MuchTitan/go-log-forwarder/internal/output"
+	outputcounter "github.com/MuchTitan/go-log-forwarder/internal/output/counter"
+	outputgelf "github.com/MuchTitan/go-log-forwarder/internal/output/gelf"
+	outputsplunk "github.com/MuchTitan/go-log-forwarder/internal/output/splunk"
+	outputstdout "github.com/MuchTitan/go-log-forwarder/internal/output/stdout"
 	"github.com/MuchTitan/go-log-forwarder/internal/parser"
+	parserjson "github.com/MuchTitan/go-log-forwarder/internal/parser/json"
+	parserregex "github.com/MuchTitan/go-log-forwarder/internal/parser/regex"
 	"github.com/sirupsen/logrus"
 
 	"gopkg.in/yaml.v3"
@@ -20,18 +29,17 @@ import (
 
 // Config represents the complete configuration
 type Config struct {
-	System  SystemConfig             `yaml:"System"`
-	Inputs  []map[string]interface{} `yaml:"Inputs"`
-	Parsers []map[string]interface{} `yaml:"Parsers"`
-	Filters []map[string]interface{} `yaml:"Filters"`
-	Outputs []map[string]interface{} `yaml:"Outputs"`
+	System  SystemConfig     `yaml:"System"`
+	Inputs  []map[string]any `yaml:"Inputs"`
+	Parsers []map[string]any `yaml:"Parsers"`
+	Filters []map[string]any `yaml:"Filters"`
+	Outputs []map[string]any `yaml:"Outputs"`
 }
 
 // SystemConfig holds system-wide configuration
 type SystemConfig struct {
 	LogLevel string `yaml:"logLevel"`
 	LogFile  string `yaml:"logFile"`
-	DBFile   string `yaml:"dbFile"`
 }
 
 func (c *SystemConfig) GetLogLevel() logrus.Level {
@@ -53,8 +61,7 @@ func (c *SystemConfig) GetLogLevel() logrus.Level {
 // Engine is extended to include configuration
 type PluginEngine struct {
 	*engine.Engine
-	config    Config
-	DbManager *database.DBManager
+	config Config
 }
 
 // NewPluginEngine creates a new engine with configuration
@@ -66,12 +73,6 @@ func NewPluginEngine(configPath string) (*PluginEngine, error) {
 	if err := engine.loadConfig(configPath); err != nil {
 		return nil, err
 	}
-
-	dbManager, err := database.NewDBManager(engine.config.System.DBFile)
-	if err != nil {
-		return nil, err
-	}
-	engine.DbManager = dbManager
 
 	if err := engine.initializePlugins(); err != nil {
 		return nil, err
@@ -158,18 +159,16 @@ func (e *PluginEngine) initializePlugins() error {
 	return nil
 }
 
-func (e *PluginEngine) initializeInput(config map[string]interface{}) error {
+func (e *PluginEngine) initializeInput(config map[string]any) error {
 	var inputObject input.Plugin
 
 	switch strings.ToLower(config["Type"].(string)) {
 	case "tail":
-		inputObject = &input.Tail{
-			DbManager: e.DbManager,
-		}
+		inputObject = &inputtail.Tail{}
 	case "tcp":
-		inputObject = &input.TCP{}
+		inputObject = &inputtcp.TCP{}
 	case "http":
-		inputObject = &input.InHTTP{}
+		inputObject = &inputhttp.InHTTP{}
 	default:
 		return fmt.Errorf("unknown input type: %s", config["Type"])
 	}
@@ -182,14 +181,14 @@ func (e *PluginEngine) initializeInput(config map[string]interface{}) error {
 	return nil
 }
 
-func (e *PluginEngine) initializeParser(config map[string]interface{}) error {
+func (e *PluginEngine) initializeParser(config map[string]any) error {
 	var parserObject parser.Plugin
 
 	switch strings.ToLower(config["Type"].(string)) {
 	case "json":
-		parserObject = &parser.Json{}
+		parserObject = &parserjson.Json{}
 	case "regex":
-		parserObject = &parser.Regex{}
+		parserObject = &parserregex.Regex{}
 	default:
 		return fmt.Errorf("unknown filter type: %s", config["Type"])
 	}
@@ -202,12 +201,12 @@ func (e *PluginEngine) initializeParser(config map[string]interface{}) error {
 	return nil
 }
 
-func (e *PluginEngine) initializeFilter(config map[string]interface{}) error {
+func (e *PluginEngine) initializeFilter(config map[string]any) error {
 	var filterObject filter.Plugin
 
 	switch strings.ToLower(config["Type"].(string)) {
 	case "grep":
-		filterObject = &filter.Grep{}
+		filterObject = &filtergrep.Grep{}
 	default:
 		return fmt.Errorf("unknown filter type: %s", config["Type"])
 	}
@@ -220,18 +219,18 @@ func (e *PluginEngine) initializeFilter(config map[string]interface{}) error {
 	return nil
 }
 
-func (e *PluginEngine) initializeOutput(config map[string]interface{}) error {
+func (e *PluginEngine) initializeOutput(config map[string]any) error {
 	var outputObject output.Plugin
 
 	switch strings.ToLower(config["Type"].(string)) {
 	case "stdout":
-		outputObject = &output.Stdout{}
+		outputObject = &outputstdout.Stdout{}
 	case "splunk":
-		outputObject = &output.Splunk{}
+		outputObject = &outputsplunk.Splunk{}
 	case "counter":
-		outputObject = &output.Counter{}
+		outputObject = &outputcounter.Counter{}
 	case "gelf":
-		outputObject = &output.GELF{}
+		outputObject = &outputgelf.GELF{}
 	default:
 		return fmt.Errorf("unknown output type: %s", config["Type"])
 	}

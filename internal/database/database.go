@@ -1,163 +1,75 @@
-package engine
+package database
 
 import (
-	"context"
+	"database/sql"
+	"fmt"
 	"sync"
-	"time"
 
-	"github.com/MuchTitan/go-log-forwarder/internal"
-	"github.com/MuchTitan/go-log-forwarder/internal/filter"
-	"github.com/MuchTitan/go-log-forwarder/internal/input"
-	"github.com/MuchTitan/go-log-forwarder/internal/output"
-	"github.com/MuchTitan/go-log-forwarder/internal/parser"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 )
 
-type Engine struct {
-	inputs   []input.Plugin
-	parsers  []parser.Plugin
-	filters  []filter.Plugin
-	outputs  []output.Plugin
-	pipeline chan internal.Event
-	wg       sync.WaitGroup
-	ctx      context.Context
-	cancel   context.CancelFunc
+type DBManager struct {
+	db *sql.DB
+	mu sync.Mutex
 }
 
-func NewEngine() *Engine {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &Engine{
-		pipeline: make(chan internal.Event),
-		ctx:      ctx,
-		cancel:   cancel,
-	}
-}
-
-// RegisterInput adds an input plugin to the engine
-func (e *Engine) RegisterInput(input input.Plugin) {
-	e.inputs = append(e.inputs, input)
-}
-
-// RegisterParser adds an parser plugin to the engine
-func (e *Engine) RegisterParser(parser parser.Plugin) {
-	e.parsers = append(e.parsers, parser)
-}
-
-// RegisterFilter adds a filter plugin to the engine
-func (e *Engine) RegisterFilter(filter filter.Plugin) {
-	e.filters = append(e.filters, filter)
-}
-
-// RegisterOutput adds an output plugin to the engine
-func (e *Engine) RegisterOutput(output output.Plugin) {
-	e.outputs = append(e.outputs, output)
-}
-
-// Start begins the processing pipeline
-func (e *Engine) Start() error {
-	// Start input plugins
-	for _, in := range e.inputs {
-		e.wg.Add(1)
-		go func(in input.Plugin) {
-			defer e.wg.Done()
-			if err := in.Start(e.ctx, e.pipeline); err != nil {
-				// TODO: Implement proper error handling (error channel?)
-				logrus.WithError(err).Errorf("Coundnt start input: %s.", in.Name())
-			}
-		}(in)
+// NewDBManager creates a new database manager instance
+func NewDBManager(dbPath string) (*DBManager, error) {
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("cound not open sqlite3 database: %v", err)
 	}
 
-	// Start processing worker
-	e.wg.Add(1)
-	go e.processRecords()
+	logrus.WithField("file", dbPath).Debug("Opening Sqlite3 database.")
 
-	return nil
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	return &DBManager{
+		db: db,
+	}, nil
 }
 
-// processRecords handles the main processing pipeline
-func (e *Engine) processRecords() {
-	defer e.wg.Done()
+// ExecuteWrite performs a write operation safely
+func (dm *DBManager) ExecuteWrite(query string, args ...any) (sql.Result, error) {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
 
-	buffer := make([]internal.Event, 0, 200)
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-e.ctx.Done():
-			return
-
-		case event := <-e.pipeline:
-			processedEvent := &event
-
-			for _, parser := range e.parsers {
-				if ok := parser.Process(processedEvent); ok {
-					break
-				}
-			}
-
-			// Apply filters
-			for _, filter := range e.filters {
-				if !filter.MatchTag(event.Metadata.Tag) {
-					continue
-				}
-				var err error
-				processedEvent, err = filter.Process(processedEvent)
-				if err != nil {
-					logrus.WithError(err).Errorf("Coundnt filter event")
-					continue
-				}
-				if processedEvent == nil {
-					// Event was filtered out
-					break
-				}
-			}
-
-			if processedEvent != nil {
-				buffer = append(buffer, *processedEvent)
-			}
-
-			// Flush if buffer is full
-			if len(buffer) >= 100 {
-				e.flush(buffer)
-				buffer = buffer[:0]
-			}
-
-		case <-ticker.C:
-			// Periodic flush
-			if len(buffer) > 0 {
-				e.flush(buffer)
-				buffer = buffer[:0]
-			}
-		}
-	}
+	res, err := dm.db.Exec(query, args...)
+	return res, err
 }
 
-// flush writes records to all output plugins
-func (e *Engine) flush(records []internal.Event) {
-	for _, output := range e.outputs {
-		if err := output.Write(records); err != nil {
-			logrus.WithError(err).WithField("writer", output.Name()).Error("[Engine] Coundnt write to output")
-		}
+// ExecuteWriteTx performs multiple write operations in a single transaction
+func (dm *DBManager) ExecuteWriteTx(fn func(*sql.Tx) error) error {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+
+	tx, err := dm.db.Begin()
+	if err != nil {
+		return err
 	}
+
+	if err := fn(tx); err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	return tx.Commit()
 }
 
-// Stop gracefully shuts down the engine
-func (e *Engine) Stop() error {
-	e.cancel()
-	e.wg.Wait()
-
-	// Cleanup plugins
-	for _, input := range e.inputs {
-		input.Exit()
-	}
-	for _, filter := range e.filters {
-		filter.Exit()
-	}
-	for _, output := range e.outputs {
-		output.Flush()
-		output.Exit()
-	}
-
-	return nil
+// Query performs a read operation (Row)
+func (dm *DBManager) QueryRow(query string, args ...any) *sql.Row {
+	return dm.db.QueryRow(query, args...)
 }
+
+// Query performs a read operation (Rows)
+func (dm *DBManager) Query(query string, args ...any) (*sql.Rows, error) {
+	return dm.db.Query(query, args...)
+}
+
+// Close closes the database connection
+func (dm *DBManager) Close() error {
+	return dm.db.Close()
+}
+

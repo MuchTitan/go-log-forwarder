@@ -242,4 +242,3 @@ func (e *PluginEngine) initializeOutput(config map[string]any) error {
 	e.RegisterOutput(outputObject)
 	return nil
 }
-

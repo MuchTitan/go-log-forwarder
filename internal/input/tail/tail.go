@@ -154,7 +154,6 @@ func (t *Tail) Start(parentCtx context.Context, output chan<- internal.Event) er
 				case FILEEVENT_WRITE:
 					go t.readFileWithDebounce(event.path, output)
 				case FILEEVENT_DELETE:
-					logrus.Infof("Got file event: %+v", event)
 					go t.cleanupDeletedFile(event.path, event.inode)
 				}
 			}

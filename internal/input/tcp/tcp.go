@@ -71,11 +71,13 @@ func (t *TCP) Init(config map[string]any) error {
 	}
 
 	if timeoutStr, exists := config["Timeout"]; exists {
-		if _, err := fmt.Sscanf(timeoutStr.(string), "%d", &t.timeout); err != nil {
+		var timeout float64
+		if _, err := fmt.Sscanf(timeoutStr.(string), "%f", &timeout); err != nil {
 			return fmt.Errorf("invalid timeout: %v", err)
 		}
+		t.timeout = time.Duration(timeout * float64(time.Minute))
 	} else {
-		t.timeout = defaultTCPTimeout
+		t.timeout = defaultTCPTimeout * time.Minute
 	}
 
 	t.name = util.MustString(config["Name"])

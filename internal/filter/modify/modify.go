@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
-	"strings"
 
 	"github.com/MuchTitan/go-log-forwarder/internal"
 	"github.com/MuchTitan/go-log-forwarder/internal/util"
@@ -41,7 +40,7 @@ func (m *Modify) Name() string {
 }
 
 func (m *Modify) MatchTag(inputTag string) bool {
-	return util.TagMatch(inputTag, m.match)
+	return util.GlobMatch(inputTag, m.match)
 }
 
 func (m *Modify) Init(config map[string]any) error {
@@ -332,19 +331,8 @@ func (m *Modify) Process(data *internal.Event) (*internal.Event, error) {
 
 	// Apply remove operations for wildcard matches
 	for _, pattern := range m.removeWildcard {
-		// Convert wildcard pattern to regex
-		regexPattern := "^" + regexp.QuoteMeta(pattern)
-		regexPattern = strings.ReplaceAll(regexPattern, "\\*", ".*")
-		regexPattern = strings.ReplaceAll(regexPattern, "\\?", ".")
-		regexPattern += "$"
-
-		regex, err := regexp.Compile(regexPattern)
-		if err != nil {
-			continue
-		}
-
 		for key := range modifiedData {
-			if regex.MatchString(key) {
+			if util.GlobMatch(key, pattern) {
 				delete(modifiedData, key)
 			}
 		}

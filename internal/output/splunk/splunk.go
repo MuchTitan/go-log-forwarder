@@ -34,7 +34,7 @@ type Splunk struct {
 }
 
 func (s *Splunk) MatchTag(inputTag string) bool {
-	return util.TagMatch(inputTag, s.match)
+	return util.GlobMatch(inputTag, s.match)
 }
 
 type splunkEvent struct {
@@ -159,7 +159,7 @@ func (s *Splunk) Write(events []internal.Event) error {
 	// Convert all events to splunkEvents first
 	splunkEvents := make([]splunkEvent, 0, len(events))
 	for _, event := range events {
-		if !util.TagMatch(event.Metadata.Tag, s.match) {
+		if !util.GlobMatch(event.Metadata.Tag, s.match) {
 			continue
 		}
 		splunkevent := s.newSplunkEvent(event)

@@ -87,7 +87,7 @@ func (s *Stdout) Write(events []internal.Event) error {
 	defer s.mutex.Unlock()
 
 	for _, event := range events {
-		if !util.TagMatch(event.Metadata.Tag, s.match) {
+		if !util.GlobMatch(event.Metadata.Tag, s.match) {
 			return nil
 		}
 		var output string
@@ -216,7 +216,7 @@ func (s *Stdout) colorize(output string) string {
 }
 
 func (s *Stdout) MatchTag(inputTag string) bool {
-	return util.TagMatch(inputTag, s.match)
+	return util.GlobMatch(inputTag, s.match)
 }
 
 func (s *Stdout) Flush() error {

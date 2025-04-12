@@ -3,45 +3,26 @@ package util
 import (
 	"fmt"
 	"maps"
+	"regexp"
 	"strings"
 )
 
-func TagMatch(inputTag, match string) bool {
-	// Split the pattern by '*' and get the parts.
-	if match == "" && inputTag != "" {
+func GlobMatch(input, match string) bool {
+	regexPattern := "^" + regexp.QuoteMeta(match)
+	regexPattern = strings.ReplaceAll(regexPattern, "\\*", ".*")
+	regexPattern = strings.ReplaceAll(regexPattern, "\\?", ".")
+	regexPattern += "$"
+
+	regex, err := regexp.Compile(regexPattern)
+	if err != nil {
 		return false
 	}
-	parts := strings.Split(match, "*")
 
-	// Keep track of the current position in the input string.
-	pos := 0
-
-	for i, part := range parts {
-		if part == "" {
-			continue
-		}
-
-		// If it's the first part, the input string must start with this part.
-		if i == 0 && !strings.HasPrefix(inputTag, part) {
-			return false
-		}
-
-		// If it's the last part, the input string must end with this part.
-		if i == len(parts)-1 && !strings.HasSuffix(inputTag, part) {
-			return false
-		}
-
-		// Find the next occurrence of the part in the input string starting from `pos`.
-		index := strings.Index(inputTag[pos:], part)
-		if index == -1 {
-			return false
-		}
-
-		// Move the position forward.
-		pos += index + len(part)
+	if regex.MatchString(input) {
+		return true
 	}
 
-	return true
+	return false
 }
 
 func MergeMaps(m1, m2 map[string]any) map[string]any {

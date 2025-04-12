@@ -45,7 +45,7 @@ func (c *Counter) IncrementCounter() uint64 {
 
 func (c *Counter) Write(events []internal.Event) error {
 	for _, event := range events {
-		if !util.TagMatch(event.Metadata.Tag, c.match) {
+		if !util.GlobMatch(event.Metadata.Tag, c.match) {
 			continue
 		}
 		count := c.IncrementCounter()

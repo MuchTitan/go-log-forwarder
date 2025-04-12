@@ -23,7 +23,7 @@ func (g *Grep) Name() string {
 }
 
 func (g *Grep) MatchTag(inputTag string) bool {
-	return util.TagMatch(inputTag, g.match)
+	return util.GlobMatch(inputTag, g.match)
 }
 
 func (g *Grep) Init(config map[string]any) error {

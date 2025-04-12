@@ -25,7 +25,7 @@ func TestTagMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := TagMatch(tt.inputTag, tt.match)
+			got := GlobMatch(tt.inputTag, tt.match)
 			assert.Equal(t, tt.want, got)
 		})
 	}

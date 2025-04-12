@@ -95,7 +95,7 @@ func (g *GELF) setupWriter() error {
 
 func (g *GELF) Write(events []internal.Event) error {
 	for _, event := range events {
-		if !util.TagMatch(event.Metadata.Tag, g.match) {
+		if !util.GlobMatch(event.Metadata.Tag, g.match) {
 			continue
 		}
 

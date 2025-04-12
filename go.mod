@@ -1,6 +1,6 @@
 module github.com/MuchTitan/go-log-forwarder
 
-go 1.24.0
+go 1.24.2
 
 require (
 	github.com/mattn/go-sqlite3 v1.14.24

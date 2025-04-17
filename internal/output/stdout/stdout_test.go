@@ -175,11 +175,6 @@ func TestStdoutMatchTag(t *testing.T) {
 	assert.False(t, s.MatchTag("other-event"))
 }
 
-func TestStdoutFlush(t *testing.T) {
-	s := &Stdout{}
-	assert.NoError(t, s.Flush())
-}
-
 func TestStdoutExit(t *testing.T) {
 	s := &Stdout{}
 	assert.NoError(t, s.Exit())

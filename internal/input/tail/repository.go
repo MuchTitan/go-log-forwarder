@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/MuchTitan/go-log-forwarder/internal/database"
+	"github.com/sirupsen/logrus"
 )
 
 type TailRepository interface {
@@ -20,9 +21,10 @@ type SQLiteTailRepository struct {
 	db *database.DBManager
 }
 
-func NewSQLiteTailRepository(dbFile string) TailRepository {
-	dbManager, err := database.NewDBManager(dbFile)
+func NewSQLiteTailRepository(dbFile string) *SQLiteTailRepository {
+	dbManager, err := database.GetDBManager(dbFile)
 	if err != nil {
+		logrus.WithError(err).Error("Could not create DB")
 		return nil
 	}
 	return &SQLiteTailRepository{
@@ -47,7 +49,7 @@ func (r *SQLiteTailRepository) CreateTables() error {
 	return nil
 }
 
-func (r *SQLiteTailRepository) UpsertFileState(state *fileState) error {
+func (r *SQLiteTailRepository) UpdateFileState(state *fileState) error {
 	query := `
         INSERT OR REPLACE INTO tail_files 
         (path, offset, lastReadLine, inodenumber, updated_at) 

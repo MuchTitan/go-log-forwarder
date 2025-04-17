@@ -10,14 +10,31 @@ import (
 )
 
 type Counter struct {
-	match string
-	name  string
-	mu    sync.Mutex
-	count uint64
+	name    string
+	errorCh chan<- internal.ErrorEvent
+	match   string
+	mu      sync.Mutex
+	count   uint64
 }
 
 func (c *Counter) Name() string {
 	return c.name
+}
+
+func (c *Counter) Type() internal.PluginType {
+	return internal.OUTPUTCOUNTER
+}
+
+func (c *Counter) GetMatch() string {
+	return c.match
+}
+
+func (c *Counter) WriteErrorEvent(errEvent internal.ErrorEvent) error {
+	return nil
+}
+
+func (c *Counter) SetErrorChannel(inputCh chan<- internal.ErrorEvent) {
+	c.errorCh = inputCh
 }
 
 func (c *Counter) Init(config map[string]any) error {
@@ -61,8 +78,8 @@ func (c *Counter) Write(events []internal.Event) error {
 	return nil
 }
 
-func (c *Counter) Flush() error {
-	return nil
+func (c *Counter) Flush() (any, error) {
+	return nil, nil
 }
 
 func (c *Counter) Exit() error {

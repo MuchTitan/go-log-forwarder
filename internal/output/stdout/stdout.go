@@ -19,6 +19,7 @@ var ValidFormats = []string{"json", "plain", "template"}
 
 type Stdout struct {
 	name       string
+	errorCh    chan<- internal.ErrorEvent
 	format     string             // Output format (json, template, plain)
 	template   *template.Template // Custom output template
 	jsonIndent bool               // Whether to indent JSON output
@@ -29,6 +30,22 @@ type Stdout struct {
 
 func (s *Stdout) Name() string {
 	return s.name
+}
+
+func (s *Stdout) Type() internal.PluginType {
+	return internal.OUTPUTSTDOUT
+}
+
+func (s *Stdout) GetMatch() string {
+	return s.match
+}
+
+func (s *Stdout) WriteErrorEvent(errEvent internal.ErrorEvent) error {
+	return nil
+}
+
+func (s *Stdout) SetErrorChannel(inputCH chan<- internal.ErrorEvent) {
+	s.errorCh = inputCH
 }
 
 func (s *Stdout) Init(config map[string]any) error {
@@ -219,9 +236,9 @@ func (s *Stdout) MatchTag(inputTag string) bool {
 	return util.GlobMatch(inputTag, s.match)
 }
 
-func (s *Stdout) Flush() error {
+func (s *Stdout) Flush() (any, error) {
 	// No buffering, so no flush needed
-	return nil
+	return nil, nil
 }
 
 func (s *Stdout) Exit() error {

@@ -26,6 +26,10 @@ func (g *Grep) MatchTag(inputTag string) bool {
 	return util.GlobMatch(inputTag, g.match)
 }
 
+func (g *Grep) Type() internal.PluginType {
+	return internal.FILTERGREP
+}
+
 func (g *Grep) Init(config map[string]any) error {
 	g.op = util.MustString(config["Op"])
 	if g.op == "" {

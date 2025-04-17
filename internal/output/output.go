@@ -4,6 +4,9 @@ import "github.com/MuchTitan/go-log-forwarder/internal"
 
 type Plugin interface {
 	internal.Plugin
-	Write(records []internal.Event) error
-	Flush() error
+	Write(events []internal.Event) error
+	WriteErrorEvent(internal.ErrorEvent) error
+	Flush() (any, error)
+	GetMatch() string
+	SetErrorChannel(chan<- internal.ErrorEvent)
 }

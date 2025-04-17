@@ -45,6 +45,10 @@ func (t *TCP) Tag() string {
 	return t.tag
 }
 
+func (t *TCP) Type() internal.PluginType {
+	return internal.INPUTTCP
+}
+
 func (t *TCP) Init(config map[string]any) error {
 	t.listenAddr = util.MustString(config["ListenAddr"])
 	if t.listenAddr == "" {

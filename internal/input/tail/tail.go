@@ -46,6 +46,10 @@ func (t *Tail) Tag() string {
 	return t.tag
 }
 
+func (t *Tail) Type() internal.PluginType {
+	return internal.INPUTTAIL
+}
+
 func (t *Tail) Init(config map[string]any) error {
 	t.glob = util.MustString(config["Glob"])
 	if t.glob == "" {
@@ -154,7 +158,9 @@ func (t *Tail) Start(parentCtx context.Context, output chan<- internal.Event) er
 				case FILEEVENT_WRITE:
 					go t.readFileWithDebounce(event.path, output)
 				case FILEEVENT_DELETE:
-					go t.cleanupDeletedFile(event.path, event.inode)
+					if t.stateSavingEnabled {
+						go t.cleanupDeletedFile(event.path, event.inode)
+					}
 				}
 			}
 		}

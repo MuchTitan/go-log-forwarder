@@ -14,8 +14,8 @@ type DBManager struct {
 	mu sync.Mutex
 }
 
-// NewDBManager creates a new database manager instance
-func NewDBManager(dbPath string) (*DBManager, error) {
+// GetDBManager creates a new database manager instance
+func GetDBManager(dbPath string) (*DBManager, error) {
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("cound not open sqlite3 database: %v", err)
@@ -26,9 +26,11 @@ func NewDBManager(dbPath string) (*DBManager, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
-	return &DBManager{
+	dbManager := &DBManager{
 		db: db,
-	}, nil
+	}
+
+	return dbManager, nil
 }
 
 // ExecuteWrite performs a write operation safely

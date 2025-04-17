@@ -52,6 +52,5 @@ func TestCounter_Write(t *testing.T) {
 
 func TestCounter_FlushExit(t *testing.T) {
 	c := &Counter{}
-	assert.NoError(t, c.Flush())
 	assert.NoError(t, c.Exit())
 }

@@ -38,8 +38,11 @@ type Config struct {
 
 // SystemConfig holds system-wide configuration
 type SystemConfig struct {
-	LogLevel string `yaml:"logLevel"`
-	LogFile  string `yaml:"logFile"`
+	LogLevel       string        `yaml:"logLevel"`
+	LogFile        string        `yaml:"logFile"`
+	MaxRetries     int           `yaml:"maxRetries"`
+	RetryBaseDelay time.Duration `yaml:"retryBaseDelay"`
+	RetryMaxDelay  time.Duration `yaml:"retryMaxDelay"`
 }
 
 func (c *SystemConfig) GetLogLevel() logrus.Level {
@@ -73,6 +76,13 @@ func NewPluginEngine(configPath string) (*PluginEngine, error) {
 	if err := engine.loadConfig(configPath); err != nil {
 		return nil, err
 	}
+
+	// Set retry configuration from system config
+	engine.SetRetryConfig(
+		engine.config.System.MaxRetries,
+		engine.config.System.RetryBaseDelay,
+		engine.config.System.RetryMaxDelay,
+	)
 
 	if err := engine.initializePlugins(); err != nil {
 		return nil, err

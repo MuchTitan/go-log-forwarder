@@ -20,6 +20,10 @@ func (j *Json) Name() string {
 	return j.name
 }
 
+func (j *Json) Type() internal.PluginType {
+	return internal.PARSERJSON
+}
+
 func (j *Json) Init(config map[string]any) error {
 	j.name = util.MustString(config["Name"])
 	if j.name == "" {

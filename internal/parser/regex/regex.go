@@ -22,6 +22,10 @@ func (r *Regex) Name() string {
 	return r.name
 }
 
+func (r *Regex) Type() internal.PluginType {
+	return internal.PARSERREGEX
+}
+
 func (r *Regex) Init(config map[string]any) error {
 	r.name = util.MustString(config["Name"])
 	if r.name == "" {

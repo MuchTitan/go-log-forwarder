@@ -15,6 +15,7 @@ import (
 
 type GELF struct {
 	name    string
+	errorCh chan<- internal.ErrorEvent
 	match   string
 	host    string
 	hostKey string
@@ -26,6 +27,18 @@ type GELF struct {
 
 func (g *GELF) Name() string {
 	return g.name
+}
+
+func (g *GELF) GetMatch() string {
+	return g.match
+}
+
+func (g *GELF) Type() internal.PluginType {
+	return internal.OUTPUTGELF
+}
+
+func (g *GELF) SetErrorChannel(inputCH chan<- internal.ErrorEvent) {
+	g.errorCh = inputCH
 }
 
 func (g *GELF) Init(config map[string]any) error {
@@ -119,7 +132,7 @@ func (g *GELF) Write(events []internal.Event) error {
 		g.buffer = append(g.buffer, &msg)
 
 		if len(g.buffer) > 100 {
-			if err := g.Flush(); err != nil {
+			if _, err := g.Flush(); err != nil {
 				logrus.WithError(err).Error("could not flush gelf output")
 			}
 		}
@@ -127,15 +140,29 @@ func (g *GELF) Write(events []internal.Event) error {
 	return nil
 }
 
-func (g *GELF) Flush() error {
-	for _, data := range g.buffer {
-		err := g.writer.WriteMessage(data)
-		if err != nil {
+func (g *GELF) WriteErrorEvent(errEvent internal.ErrorEvent) error {
+	switch errEvent.Data.(type) {
+	case *gelf.Message:
+		if err := g.writer.WriteMessage(errEvent.Data.(*gelf.Message)); err != nil {
 			return err
 		}
 	}
-	g.buffer = g.buffer[:0]
 	return nil
+}
+
+func (g *GELF) Flush() (any, error) {
+	for _, data := range g.buffer {
+		if err := g.writer.WriteMessage(data); err != nil {
+			g.errorCh <- internal.ErrorEvent{
+				Err:   err,
+				Match: g.match,
+				Type:  internal.OUTPUTGELF,
+				Data:  data,
+			}
+		}
+	}
+	g.buffer = g.buffer[:0]
+	return nil, nil
 }
 
 func (g *GELF) Exit() error {

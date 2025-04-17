@@ -42,6 +42,10 @@ func (h *InHTTP) Tag() string {
 	return h.tag
 }
 
+func (t *InHTTP) Type() internal.PluginType {
+	return internal.INPUTHTTP
+}
+
 func (h *InHTTP) Init(config map[string]any) error {
 	h.name = util.MustString(config["Name"])
 	if h.name == "" {

@@ -15,7 +15,7 @@ type Plugin interface {
 
 func AddMetadata(event *internal.Event, in Plugin) {
 	hostname, _ := os.Hostname()
-	event.Metadata.InputSource = in.Name()
+	event.Metadata.InputSource = in.Type()
 	event.Metadata.Tag = in.Tag()
 	event.Metadata.Host = hostname
 }

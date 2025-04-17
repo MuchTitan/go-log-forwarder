@@ -43,6 +43,10 @@ func (m *Modify) MatchTag(inputTag string) bool {
 	return util.GlobMatch(inputTag, m.match)
 }
 
+func (m *Modify) Type() internal.PluginType {
+	return internal.FILTERMODIFY
+}
+
 func (m *Modify) Init(config map[string]any) error {
 	m.name = util.MustString(config["Name"])
 	if m.name == "" {

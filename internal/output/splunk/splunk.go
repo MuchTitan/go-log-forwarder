@@ -18,6 +18,8 @@ import (
 
 type Splunk struct {
 	name        string
+	errorCh     chan<- internal.ErrorEvent
+	url         string
 	token       string
 	match       string
 	host        string
@@ -33,8 +35,24 @@ type Splunk struct {
 	buffer      bytes.Buffer
 }
 
+func (s *Splunk) Name() string {
+	return s.name
+}
+
+func (s *Splunk) Type() internal.PluginType {
+	return internal.OUTPUTSPLUNK
+}
+
+func (s *Splunk) GetMatch() string {
+	return s.match
+}
+
 func (s *Splunk) MatchTag(inputTag string) bool {
 	return util.GlobMatch(inputTag, s.match)
+}
+
+func (s *Splunk) SetErrorChannel(inputCH chan<- internal.ErrorEvent) {
+	s.errorCh = inputCH
 }
 
 type splunkEvent struct {
@@ -44,10 +62,6 @@ type splunkEvent struct {
 	Sourcetype string `json:"sourcetype"`
 	Host       string `json:"host"`
 	Time       int64  `json:"time"`
-}
-
-func (s *Splunk) Name() string {
-	return s.name
 }
 
 func (s *Splunk) Init(config map[string]any) error {
@@ -122,6 +136,11 @@ func (s *Splunk) Init(config map[string]any) error {
 		Timeout:   time.Second * 30,
 	}
 
+	s.url = fmt.Sprintf("https://%s:%d/services/collector", s.host, s.port)
+	if s.sendRaw {
+		s.url += "/raw"
+	}
+
 	s.buffer = bytes.Buffer{}
 	return nil
 }
@@ -177,47 +196,68 @@ func (s *Splunk) Write(events []internal.Event) error {
 	s.buffer.Write(data)
 
 	if s.buffer.Len() > 100 {
-		if err := s.Flush(); err != nil {
-			return err
+		if data, err := s.Flush(); err != nil {
+			s.errorCh <- internal.ErrorEvent{
+				Err:   err,
+				Match: s.match,
+				Type:  internal.OUTPUTSPLUNK,
+				Data:  data,
+			}
 		}
 	}
 
 	return nil
 }
 
-func (s *Splunk) Flush() error {
-	if s.buffer.Len() == 0 {
-		return nil
+func (s *Splunk) WriteErrorEvent(errEvent internal.ErrorEvent) error {
+	switch errEvent.Data.(type) {
+	case bytes.Buffer:
+		if err := s.doRequest(errEvent.Data.(bytes.Buffer)); err != nil {
+			return err
+		}
+	default:
+		logrus.Error("Error event data has wrong type")
 	}
+	return nil
+}
 
-	url := fmt.Sprintf("https://%s:%d/services/collector", s.host, s.port)
-	if s.sendRaw {
-		url += "/raw"
+func (s *Splunk) Flush() (any, error) {
+	if s.buffer.Len() == 0 {
+		return nil, nil
 	}
 
 	var requestBody bytes.Buffer
 	if s.compress {
 		gz := gzip.NewWriter(&requestBody)
 		if _, err := gz.Write(s.buffer.Bytes()); err != nil {
-			return fmt.Errorf("error during gzip compress: %w", err)
+			return s.buffer, fmt.Errorf("error during gzip compress: %w", err)
 		}
 		if err := gz.Close(); err != nil {
-			return err
+			return s.buffer, err
 		}
 	} else {
 		requestBody = s.buffer
 	}
-	var tmpDataString string
-	if logrus.IsLevelEnabled(logrus.TraceLevel) {
-		tmpDataString = s.buffer.String()
-	}
 	s.buffer.Reset()
 
-	req, _ := http.NewRequest("POST", url, &requestBody)
+	if err := s.doRequest(requestBody); err != nil {
+		return requestBody, err
+	}
+
+	return nil, nil
+}
+
+func (s *Splunk) doRequest(buffer bytes.Buffer) error {
+	req, _ := http.NewRequest("POST", s.url, &buffer)
 	req.Header.Set("Authorization", "Splunk "+s.token)
 	req.Header.Set("Content-Type", "application/json")
 	if s.compress {
 		req.Header.Set("Content-Encoding", "gzip")
+	}
+
+	var tmpDataString string
+	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+		tmpDataString = s.buffer.String()
 	}
 
 	res, err := s.httpClient.Do(req)
@@ -225,7 +265,6 @@ func (s *Splunk) Flush() error {
 		return err
 	}
 	defer res.Body.Close()
-
 	if res.StatusCode != http.StatusOK {
 		logrus.WithFields(logrus.Fields{
 			"url":     req.URL.String(),

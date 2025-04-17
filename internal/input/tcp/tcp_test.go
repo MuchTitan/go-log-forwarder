@@ -65,8 +65,7 @@ func TestTCP_Init(t *testing.T) {
 }
 
 func TestTCP_ConnectionHandling(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Create TCP input with test configuration
 	tcp := &TCP{}
@@ -106,7 +105,7 @@ func TestTCP_ConnectionHandling(t *testing.T) {
 	case event := <-events:
 		assert.Equal(t, testData, event.RawData)
 		assert.Equal(t, "test", event.Metadata.Tag)
-		assert.Equal(t, "test", event.Metadata.InputSource)
+		assert.Equal(t, internal.INPUTTCP, event.Metadata.InputSource)
 	case <-time.After(1 * time.Second):
 		t.Fatal("Timeout waiting for event")
 	}

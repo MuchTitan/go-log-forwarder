@@ -227,6 +227,6 @@ func TestAddMetadata(t *testing.T) {
 
 	input.AddMetadata(event, inputContent)
 
-	assert.Equal(t, "test_http", event.Metadata.InputSource)
+	assert.Equal(t, internal.INPUTHTTP, event.Metadata.InputSource)
 	assert.Equal(t, "test_tag", event.Metadata.Tag)
 }

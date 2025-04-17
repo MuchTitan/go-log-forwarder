@@ -33,6 +33,12 @@ type Splunk struct {
 	httpClient  *http.Client
 	eventFields map[string]any
 	buffer      bytes.Buffer
+	extraFields ExtraFields
+}
+
+type ExtraFields struct {
+	source  bool
+	lineNum bool
 }
 
 func (s *Splunk) Name() string {
@@ -103,6 +109,11 @@ func (s *Splunk) Init(config map[string]any) error {
 		s.sourceType = "JSON"
 	}
 
+	if extras, exists := config["ExtraFields"]; exists {
+		s.extraFields.source = extras.(map[string]any)["source"] == true
+		s.extraFields.lineNum = extras.(map[string]any)["lineNum"] == true
+	}
+
 	if port, exists := config["Port"]; exists {
 		var ok bool
 		if s.port, ok = port.(int); !ok {
@@ -145,10 +156,14 @@ func (s *Splunk) Init(config map[string]any) error {
 	return nil
 }
 
-func AppendMetadata(splunkevent *splunkEvent, event *internal.Event) {
+func (s *Splunk) AppendMetadata(splunkevent *splunkEvent, event *internal.Event) {
 	currData := splunkevent.Event.(map[string]any)
-	currData["source"] = event.Metadata.Source
-	currData["lineNum"] = event.Metadata.LineNum
+	if s.extraFields.source {
+		currData["source"] = event.Metadata.Source
+	}
+	if s.extraFields.lineNum {
+		currData["lineNum"] = event.Metadata.LineNum
+	}
 	splunkevent.Event = currData
 }
 
@@ -168,7 +183,7 @@ func (s *Splunk) newSplunkEvent(event internal.Event) splunkEvent {
 
 	if len(event.ParsedData) != 0 {
 		splunkevent.Event = util.MergeMaps(event.ParsedData, s.eventFields)
-		AppendMetadata(&splunkevent, &event)
+		s.AppendMetadata(&splunkevent, &event)
 	}
 
 	return splunkevent

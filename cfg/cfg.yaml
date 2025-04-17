@@ -5,7 +5,7 @@ System:
 Inputs:
   - Type: "tail"
     Tag: "app-log"
-    Glob: "./logs/file*.log"
+    Glob: "./logs/complex*.log"
     EnableDB: false
     DBFile: "./state.db"
 

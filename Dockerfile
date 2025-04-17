@@ -1,5 +1,5 @@
 # # Build stage
-FROM golang:1.23.2-alpine AS builder
+FROM golang:1.24.2-alpine AS builder
 
 WORKDIR /build
 
@@ -17,7 +17,7 @@ RUN go mod download
 COPY . .
 
 # Build the application with CGO enabled
-RUN CGO_ENABLED=1 GOOS=linux go build -o logforwarder .
+RUN CGO_ENABLED=1 GOOS=linux go build -o logforwarder cmd/main.go
 
 # Final stage
 FROM alpine:3.18

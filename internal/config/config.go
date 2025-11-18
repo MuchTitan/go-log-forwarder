@@ -67,22 +67,54 @@ type PluginEngine struct {
 	config Config
 }
 
-// NewPluginEngine creates a new engine with configuration
+// NewPluginEngine creates a new engine with configuration from file
+// Maintains backward compatibility by calling NewPluginEngineWithCLI with empty CLI config
 func NewPluginEngine(configPath string) (*PluginEngine, error) {
+	return NewPluginEngineWithCLI(configPath, CLIConfig{})
+}
+
+// NewPluginEngineWithCLI creates a new engine with configuration from file and CLI
+func NewPluginEngineWithCLI(configPath string, cliConfig CLIConfig) (*PluginEngine, error) {
 	engine := &PluginEngine{
 		Engine: engine.NewEngine(),
 	}
 
-	if err := engine.loadConfig(configPath); err != nil {
-		return nil, err
+	// Load config file if path is provided and file exists
+	if configPath != "" {
+		if _, err := os.Stat(configPath); err == nil {
+			if err := engine.loadConfig(configPath); err != nil {
+				return nil, err
+			}
+		} else if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("failed to check config file: %w", err)
+		}
+		// If file doesn't exist, continue with empty config (CLI-only mode)
 	}
 
-	// Set retry configuration from system config
+	// Merge CLI config with file config
+	engine.config = MergeConfigs(engine.config, cliConfig)
+
+	// Set retry configuration from system config (use defaults if not set)
+	if engine.config.System.MaxRetries == 0 {
+		engine.config.System.MaxRetries = 3
+	}
+	if engine.config.System.RetryBaseDelay == 0 {
+		engine.config.System.RetryBaseDelay = 1 * time.Second
+	}
+	if engine.config.System.RetryMaxDelay == 0 {
+		engine.config.System.RetryMaxDelay = 30 * time.Second
+	}
+
 	engine.SetRetryConfig(
 		engine.config.System.MaxRetries,
 		engine.config.System.RetryBaseDelay,
 		engine.config.System.RetryMaxDelay,
 	)
+
+	// Setup logging (will use defaults if not configured)
+	if err := engine.setupLogging(); err != nil {
+		return nil, fmt.Errorf("failed to setup logging: %w", err)
+	}
 
 	if err := engine.initializePlugins(); err != nil {
 		return nil, err

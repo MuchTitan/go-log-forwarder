@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/MuchTitan/go-log-forwarder/internal"
@@ -118,13 +117,6 @@ func GetGlobRoot(glob string) string {
 	}
 
 	return glob[:lastSlash]
-}
-
-func getFileID(info os.FileInfo) (uint64, error) {
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-		return stat.Ino, nil
-	}
-	return 0, fmt.Errorf("failed to get file inode")
 }
 
 func (t *Tail) Start(parentCtx context.Context, output chan<- internal.Event) error {

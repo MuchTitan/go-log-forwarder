@@ -60,7 +60,7 @@ func (g *Grep) Init(config map[string]any) error {
 		}
 	}
 
-	if g.op != "and" && g.op == "or" {
+	if g.op != "and" && g.op != "or" {
 		return fmt.Errorf("unsupported logic operator '%s' in grep filter", g.op)
 	}
 

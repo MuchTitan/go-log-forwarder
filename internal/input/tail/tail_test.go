@@ -85,11 +85,30 @@ func createTempDir(t *testing.T, pattern string) (string, func()) {
 	return tmpDir, cleanup
 }
 
+// isSQLiteAvailable checks if SQLite is actually available (requires CGO)
+func isSQLiteAvailable() bool {
+	tmpDir, err := os.MkdirTemp("", "sqlite-test")
+	if err != nil {
+		return false
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbFile := filepath.Join(tmpDir, "test.db")
+	repo := NewSQLiteTailRepository(dbFile)
+	err = repo.CreateTables()
+	if err != nil {
+		return false
+	}
+	repo.Close()
+	return true
+}
+
 func TestTail_Init(t *testing.T) {
 	tests := []struct {
-		name    string
-		config  map[string]any
-		wantErr bool
+		name           string
+		config         map[string]any
+		wantErr        bool
+		skipIfNoSQLite bool
 	}{
 		{
 			name: "valid config",
@@ -114,18 +133,30 @@ func TestTail_Init(t *testing.T) {
 				"EnableDB": true,
 				"DBFile":   "test.db",
 			},
-			wantErr: false,
+			wantErr:        false,
+			skipIfNoSQLite: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.skipIfNoSQLite && !isSQLiteAvailable() {
+				t.Skip("Skipping test: SQLite not available (CGO_ENABLED=0)")
+			}
+
 			tail := &Tail{}
 			err := tail.Init(tt.config)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+			}
+
+			// Cleanup database file if created
+			if !tt.wantErr && tt.config["EnableDB"] != nil {
+				if dbFile, ok := tt.config["DBFile"].(string); ok {
+					os.Remove(dbFile)
+				}
 			}
 		})
 	}
@@ -258,6 +289,10 @@ func TestTail_PersistStates(t *testing.T) {
 }
 
 func TestTail_Integration(t *testing.T) {
+	if !isSQLiteAvailable() {
+		t.Skip("Skipping integration test: SQLite not available (CGO_ENABLED=0)")
+	}
+
 	tmpDir, cleanup := createTempDir(t, "test-tail-integration")
 	defer cleanup()
 

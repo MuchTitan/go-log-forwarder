@@ -6,7 +6,7 @@ Inputs:
   - Type: "tail"
     Tag: "app-log"
     Glob: "./logs/complex*.log"
-    EnableDB: false
+    EnableDB: true
     DBFile: "./state.db"
 
   - Type: "http"
@@ -16,8 +16,6 @@ Parsers:
   - Type: "json"
 
 Outputs:
-  - Type: splunk
-    Name: my_splunk_output
+  - Type: counter
+    Name: foo
     Match: "*"
-    Token: ${splunk_token}
-    EventIndex: test

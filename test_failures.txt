@@ -1,0 +1,595 @@
+?   	github.com/MuchTitan/go-log-forwarder/cmd	[no test files]
+=== RUN   TestPluginTypeString
+=== RUN   TestPluginTypeString/input_tail
+=== RUN   TestPluginTypeString/input_http
+=== RUN   TestPluginTypeString/input_tcp
+=== RUN   TestPluginTypeString/parser_json
+=== RUN   TestPluginTypeString/parser_regex
+=== RUN   TestPluginTypeString/filter_grep
+=== RUN   TestPluginTypeString/filter_modify
+=== RUN   TestPluginTypeString/output_splunk
+=== RUN   TestPluginTypeString/output_gelf
+=== RUN   TestPluginTypeString/output_counter
+=== RUN   TestPluginTypeString/output_stdout
+=== RUN   TestPluginTypeString/Unhandled_Plugin_999
+--- PASS: TestPluginTypeString (0.00s)
+    --- PASS: TestPluginTypeString/input_tail (0.00s)
+    --- PASS: TestPluginTypeString/input_http (0.00s)
+    --- PASS: TestPluginTypeString/input_tcp (0.00s)
+    --- PASS: TestPluginTypeString/parser_json (0.00s)
+    --- PASS: TestPluginTypeString/parser_regex (0.00s)
+    --- PASS: TestPluginTypeString/filter_grep (0.00s)
+    --- PASS: TestPluginTypeString/filter_modify (0.00s)
+    --- PASS: TestPluginTypeString/output_splunk (0.00s)
+    --- PASS: TestPluginTypeString/output_gelf (0.00s)
+    --- PASS: TestPluginTypeString/output_counter (0.00s)
+    --- PASS: TestPluginTypeString/output_stdout (0.00s)
+    --- PASS: TestPluginTypeString/Unhandled_Plugin_999 (0.00s)
+=== RUN   TestToPluginType
+--- PASS: TestToPluginType (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal	(cached)
+=== RUN   TestParsePluginConfig
+=== RUN   TestParsePluginConfig/valid_input_config
+=== RUN   TestParsePluginConfig/valid_with_boolean
+=== RUN   TestParsePluginConfig/empty_input
+=== RUN   TestParsePluginConfig/invalid_format_no_equals
+=== RUN   TestParsePluginConfig/empty_key
+--- PASS: TestParsePluginConfig (0.00s)
+    --- PASS: TestParsePluginConfig/valid_input_config (0.00s)
+    --- PASS: TestParsePluginConfig/valid_with_boolean (0.00s)
+    --- PASS: TestParsePluginConfig/empty_input (0.00s)
+    --- PASS: TestParsePluginConfig/invalid_format_no_equals (0.00s)
+    --- PASS: TestParsePluginConfig/empty_key (0.00s)
+=== RUN   TestParseValue
+=== RUN   TestParseValue/boolean_true
+=== RUN   TestParseValue/boolean_false
+=== RUN   TestParseValue/integer
+=== RUN   TestParseValue/float
+=== RUN   TestParseValue/string
+=== RUN   TestParseValue/path
+--- PASS: TestParseValue (0.00s)
+    --- PASS: TestParseValue/boolean_true (0.00s)
+    --- PASS: TestParseValue/boolean_false (0.00s)
+    --- PASS: TestParseValue/integer (0.00s)
+    --- PASS: TestParseValue/float (0.00s)
+    --- PASS: TestParseValue/string (0.00s)
+    --- PASS: TestParseValue/path (0.00s)
+=== RUN   TestValidatePluginConfig
+=== RUN   TestValidatePluginConfig/valid_config
+=== RUN   TestValidatePluginConfig/missing_Type_field
+=== RUN   TestValidatePluginConfig/empty_Type_value
+=== RUN   TestValidatePluginConfig/Type_not_a_string
+--- PASS: TestValidatePluginConfig (0.00s)
+    --- PASS: TestValidatePluginConfig/valid_config (0.00s)
+    --- PASS: TestValidatePluginConfig/missing_Type_field (0.00s)
+    --- PASS: TestValidatePluginConfig/empty_Type_value (0.00s)
+    --- PASS: TestValidatePluginConfig/Type_not_a_string (0.00s)
+=== RUN   TestMergeConfigs
+--- PASS: TestMergeConfigs (0.00s)
+=== RUN   TestGetLogLevel
+=== RUN   TestGetLogLevel/trace_level
+=== RUN   TestGetLogLevel/debug_level
+=== RUN   TestGetLogLevel/info_level
+=== RUN   TestGetLogLevel/info_level_lowercase
+=== RUN   TestGetLogLevel/warning_level
+=== RUN   TestGetLogLevel/error_level
+=== RUN   TestGetLogLevel/default_to_info
+=== RUN   TestGetLogLevel/empty_defaults_to_info
+--- PASS: TestGetLogLevel (0.00s)
+    --- PASS: TestGetLogLevel/trace_level (0.00s)
+    --- PASS: TestGetLogLevel/debug_level (0.00s)
+    --- PASS: TestGetLogLevel/info_level (0.00s)
+    --- PASS: TestGetLogLevel/info_level_lowercase (0.00s)
+    --- PASS: TestGetLogLevel/warning_level (0.00s)
+    --- PASS: TestGetLogLevel/error_level (0.00s)
+    --- PASS: TestGetLogLevel/default_to_info (0.00s)
+    --- PASS: TestGetLogLevel/empty_defaults_to_info (0.00s)
+=== RUN   TestNewPluginEngineWithCLI_CliOnly
+--- PASS: TestNewPluginEngineWithCLI_CliOnly (0.00s)
+=== RUN   TestNewPluginEngineWithCLI_FileOnly
+--- PASS: TestNewPluginEngineWithCLI_FileOnly (0.01s)
+=== RUN   TestNewPluginEngineWithCLI_Hybrid
+--- PASS: TestNewPluginEngineWithCLI_Hybrid (0.00s)
+=== RUN   TestNewPluginEngine
+--- PASS: TestNewPluginEngine (0.00s)
+=== RUN   TestNewPluginEngineWithCLI_InvalidConfigPath
+--- PASS: TestNewPluginEngineWithCLI_InvalidConfigPath (0.00s)
+=== RUN   TestNewPluginEngineWithCLI_InvalidYAML
+--- PASS: TestNewPluginEngineWithCLI_InvalidYAML (0.00s)
+=== RUN   TestNewPluginEngineWithCLI_DefaultValues
+--- PASS: TestNewPluginEngineWithCLI_DefaultValues (0.00s)
+=== RUN   TestMergeConfigs_EmptyCLI
+--- PASS: TestMergeConfigs_EmptyCLI (0.00s)
+=== RUN   TestMergeConfigs_EmptyFile
+--- PASS: TestMergeConfigs_EmptyFile (0.00s)
+=== RUN   TestNewPluginEngineWithCLI_InvalidInputType
+--- PASS: TestNewPluginEngineWithCLI_InvalidInputType (0.00s)
+=== RUN   TestNewPluginEngineWithCLI_InvalidParserType
+--- PASS: TestNewPluginEngineWithCLI_InvalidParserType (0.00s)
+=== RUN   TestNewPluginEngineWithCLI_InvalidFilterType
+--- PASS: TestNewPluginEngineWithCLI_InvalidFilterType (0.00s)
+=== RUN   TestNewPluginEngineWithCLI_InvalidOutputType
+--- PASS: TestNewPluginEngineWithCLI_InvalidOutputType (0.00s)
+=== RUN   TestNewPluginEngineWithCLI_EnvironmentVariables
+--- PASS: TestNewPluginEngineWithCLI_EnvironmentVariables (0.00s)
+=== RUN   TestInputPlugins
+=== RUN   TestInputPlugins/tail_input
+=== RUN   TestInputPlugins/tcp_input
+=== RUN   TestInputPlugins/http_input
+--- PASS: TestInputPlugins (0.00s)
+    --- PASS: TestInputPlugins/tail_input (0.00s)
+    --- PASS: TestInputPlugins/tcp_input (0.00s)
+    --- PASS: TestInputPlugins/http_input (0.00s)
+=== RUN   TestParserPlugins
+=== RUN   TestParserPlugins/json_parser
+=== RUN   TestParserPlugins/regex_parser
+--- PASS: TestParserPlugins (0.00s)
+    --- PASS: TestParserPlugins/json_parser (0.00s)
+    --- PASS: TestParserPlugins/regex_parser (0.00s)
+=== RUN   TestFilterPlugins
+=== RUN   TestFilterPlugins/grep_filter
+=== RUN   TestFilterPlugins/grep_filter_with_regex
+--- PASS: TestFilterPlugins (0.00s)
+    --- PASS: TestFilterPlugins/grep_filter (0.00s)
+    --- PASS: TestFilterPlugins/grep_filter_with_regex (0.00s)
+=== RUN   TestOutputPlugins
+=== RUN   TestOutputPlugins/stdout_output
+=== RUN   TestOutputPlugins/splunk_output
+=== RUN   TestOutputPlugins/counter_output
+=== RUN   TestOutputPlugins/gelf_output
+--- PASS: TestOutputPlugins (0.00s)
+    --- PASS: TestOutputPlugins/stdout_output (0.00s)
+    --- PASS: TestOutputPlugins/splunk_output (0.00s)
+    --- PASS: TestOutputPlugins/counter_output (0.00s)
+    --- PASS: TestOutputPlugins/gelf_output (0.00s)
+=== RUN   TestComplexConfiguration
+--- PASS: TestComplexConfiguration (0.00s)
+=== RUN   TestTypeConversions
+=== RUN   TestTypeConversions/boolean_true
+=== RUN   TestTypeConversions/boolean_false
+=== RUN   TestTypeConversions/integer_port
+=== RUN   TestTypeConversions/string_value
+--- PASS: TestTypeConversions (0.00s)
+    --- PASS: TestTypeConversions/boolean_true (0.00s)
+    --- PASS: TestTypeConversions/boolean_false (0.00s)
+    --- PASS: TestTypeConversions/integer_port (0.00s)
+    --- PASS: TestTypeConversions/string_value (0.00s)
+=== RUN   TestHybridConfiguration
+--- PASS: TestHybridConfiguration (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/config	(cached)
+=== RUN   TestGetDBManager
+--- PASS: TestGetDBManager (0.00s)
+=== RUN   TestExecuteWrite
+    database_test.go:42: ExecuteWrite() failed: Binary was compiled with 'CGO_ENABLED=0', go-sqlite3 requires cgo to work. This is a stub
+--- FAIL: TestExecuteWrite (0.00s)
+=== RUN   TestExecuteWriteTx
+    database_test.go:80: ExecuteWriteTx() failed: Binary was compiled with 'CGO_ENABLED=0', go-sqlite3 requires cgo to work. This is a stub
+--- FAIL: TestExecuteWriteTx (0.00s)
+=== RUN   TestExecuteWriteTx_Rollback
+--- FAIL: TestExecuteWriteTx_Rollback (0.00s)
+panic: runtime error: invalid memory address or nil pointer dereference [recovered, repanicked]
+[signal 0xc0000005 code=0x0 addr=0x61 pc=0x7ff70128ceae]
+
+goroutine 20 [running]:
+testing.tRunner.func1.2({0x7ff7012d8000, 0x7ff7014761e0})
+	C:/Program Files/Go/src/testing/testing.go:1872 +0x239
+testing.tRunner.func1()
+	C:/Program Files/Go/src/testing/testing.go:1875 +0x35b
+panic({0x7ff7012d8000?, 0x7ff7014761e0?})
+	C:/Program Files/Go/src/runtime/panic.go:783 +0x132
+database/sql.(*Rows).closemuRUnlockIfHeldByScan(0xc000069d90?)
+	C:/Program Files/Go/src/database/sql/sql.go:3410 +0xe
+database/sql.(*Rows).Close(0x0)
+	C:/Program Files/Go/src/database/sql/sql.go:3437 +0x18
+panic({0x7ff7012d8000?, 0x7ff7014761e0?})
+	C:/Program Files/Go/src/runtime/panic.go:783 +0x132
+database/sql.(*Rows).closemuRUnlockIfHeldByScan(0x7ff701353880?)
+	C:/Program Files/Go/src/database/sql/sql.go:3410 +0xe
+database/sql.(*Rows).Next(0x0)
+	C:/Program Files/Go/src/database/sql/sql.go:3033 +0x1c
+github.com/MuchTitan/go-log-forwarder/internal/database.TestExecuteWriteTx_Rollback(0xc0001b2380)
+	C:/Users/Robin/Documents/go-log-forwarder/internal/database/database_test.go:128 +0x188
+testing.tRunner(0xc0001b2380, 0x7ff70131d7a8)
+	C:/Program Files/Go/src/testing/testing.go:1934 +0xc3
+created by testing.(*T).Run in goroutine 1
+	C:/Program Files/Go/src/testing/testing.go:1997 +0x44b
+FAIL	github.com/MuchTitan/go-log-forwarder/internal/database	0.459s
+=== RUN   TestNewEngine
+--- PASS: TestNewEngine (0.00s)
+=== RUN   TestRegisterInput
+--- PASS: TestRegisterInput (0.00s)
+=== RUN   TestRegisterParser
+--- PASS: TestRegisterParser (0.00s)
+=== RUN   TestRegisterFilter
+--- PASS: TestRegisterFilter (0.00s)
+=== RUN   TestRegisterOutput
+--- PASS: TestRegisterOutput (0.00s)
+=== RUN   TestSetRetryConfig
+--- PASS: TestSetRetryConfig (0.00s)
+=== RUN   TestSetRetryConfig_DefaultsOnInvalid
+--- PASS: TestSetRetryConfig_DefaultsOnInvalid (0.00s)
+=== RUN   TestStartStop
+time="2025-11-19T00:11:23+01:00" level=warning msg="During the lifetime of the programm it dropped 0 events"
+--- PASS: TestStartStop (0.06s)
+=== RUN   TestMultiplePlugins
+--- PASS: TestMultiplePlugins (0.00s)
+=== RUN   TestEngineWithNoPlugins
+time="2025-11-19T00:11:23+01:00" level=warning msg="During the lifetime of the programm it dropped 0 events"
+--- PASS: TestEngineWithNoPlugins (0.00s)
+=== RUN   TestDeleteEventFromQueue
+--- PASS: TestDeleteEventFromQueue (0.00s)
+=== RUN   TestCompareErrorEvents
+--- PASS: TestCompareErrorEvents (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/engine	(cached)
+?   	github.com/MuchTitan/go-log-forwarder/internal/filter	[no test files]
+=== RUN   TestGrepProcess
+=== RUN   TestGrepProcess/matching_single_regex_with_'or'
+=== RUN   TestGrepProcess/non-matching_regex_with_'and'
+=== RUN   TestGrepProcess/exclude_pattern_match
+=== RUN   TestGrepProcess/invalid_regex_pattern
+--- PASS: TestGrepProcess (0.00s)
+    --- PASS: TestGrepProcess/matching_single_regex_with_'or' (0.00s)
+    --- PASS: TestGrepProcess/non-matching_regex_with_'and' (0.00s)
+    --- PASS: TestGrepProcess/exclude_pattern_match (0.00s)
+    --- PASS: TestGrepProcess/invalid_regex_pattern (0.00s)
+=== RUN   TestGrepGetters
+--- PASS: TestGrepGetters (0.00s)
+=== RUN   TestGrepInit
+--- PASS: TestGrepInit (0.00s)
+=== RUN   TestGrepExit
+--- PASS: TestGrepExit (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/filter/grep	(cached)
+=== RUN   TestModifyGetters
+--- PASS: TestModifyGetters (0.00s)
+=== RUN   TestModifyMatchTag
+=== RUN   TestModifyMatchTag/wildcard_match_all
+=== RUN   TestModifyMatchTag/exact_match
+=== RUN   TestModifyMatchTag/pattern_match
+=== RUN   TestModifyMatchTag/pattern_no_match
+=== RUN   TestModifyMatchTag/prefix_pattern
+--- PASS: TestModifyMatchTag (0.00s)
+    --- PASS: TestModifyMatchTag/wildcard_match_all (0.00s)
+    --- PASS: TestModifyMatchTag/exact_match (0.00s)
+    --- PASS: TestModifyMatchTag/pattern_match (0.00s)
+    --- PASS: TestModifyMatchTag/pattern_no_match (0.00s)
+    --- PASS: TestModifyMatchTag/prefix_pattern (0.00s)
+=== RUN   TestModifyInit
+=== RUN   TestModifyInit/valid_config_with_Set
+=== RUN   TestModifyInit/valid_config_with_Add
+=== RUN   TestModifyInit/valid_config_with_Rename
+=== RUN   TestModifyInit/valid_config_with_HardRename
+=== RUN   TestModifyInit/valid_config_with_Remove
+=== RUN   TestModifyInit/valid_config_with_RemoveRegex
+=== RUN   TestModifyInit/valid_config_with_RemoveWildcard
+=== RUN   TestModifyInit/missing_condition
+=== RUN   TestModifyInit/no_operations
+=== RUN   TestModifyInit/invalid_condition_type
+=== RUN   TestModifyInit/invalid_regex_in_RemoveRegex
+=== RUN   TestModifyInit/condition_with_array_of_values
+--- PASS: TestModifyInit (0.00s)
+    --- PASS: TestModifyInit/valid_config_with_Set (0.00s)
+    --- PASS: TestModifyInit/valid_config_with_Add (0.00s)
+    --- PASS: TestModifyInit/valid_config_with_Rename (0.00s)
+    --- PASS: TestModifyInit/valid_config_with_HardRename (0.00s)
+    --- PASS: TestModifyInit/valid_config_with_Remove (0.00s)
+    --- PASS: TestModifyInit/valid_config_with_RemoveRegex (0.00s)
+    --- PASS: TestModifyInit/valid_config_with_RemoveWildcard (0.00s)
+    --- PASS: TestModifyInit/missing_condition (0.00s)
+    --- PASS: TestModifyInit/no_operations (0.00s)
+    --- PASS: TestModifyInit/invalid_condition_type (0.00s)
+    --- PASS: TestModifyInit/invalid_regex_in_RemoveRegex (0.00s)
+    --- PASS: TestModifyInit/condition_with_array_of_values (0.00s)
+=== RUN   TestModifyProcess_Conditions
+=== RUN   TestModifyProcess_Conditions/KEYEXISTS_-_condition_met
+=== RUN   TestModifyProcess_Conditions/KEYEXISTS_-_condition_not_met
+=== RUN   TestModifyProcess_Conditions/KEYDOESNOTEXIST_-_condition_met
+=== RUN   TestModifyProcess_Conditions/KEYMATCH_-_regex_match
+=== RUN   TestModifyProcess_Conditions/NOKEYMATCH_-_regex_no_match
+=== RUN   TestModifyProcess_Conditions/KEYEQUALS_-_exact_match
+=== RUN   TestModifyProcess_Conditions/KEYDOESNOTEQUAL_-_not_equal
+=== RUN   TestModifyProcess_Conditions/VALUEEQUALS_-_value_match
+=== RUN   TestModifyProcess_Conditions/VALUEDOESNOTEQUAL_-_value_not_equal
+--- PASS: TestModifyProcess_Conditions (0.00s)
+    --- PASS: TestModifyProcess_Conditions/KEYEXISTS_-_condition_met (0.00s)
+    --- PASS: TestModifyProcess_Conditions/KEYEXISTS_-_condition_not_met (0.00s)
+    --- PASS: TestModifyProcess_Conditions/KEYDOESNOTEXIST_-_condition_met (0.00s)
+    --- PASS: TestModifyProcess_Conditions/KEYMATCH_-_regex_match (0.00s)
+    --- PASS: TestModifyProcess_Conditions/NOKEYMATCH_-_regex_no_match (0.00s)
+    --- PASS: TestModifyProcess_Conditions/KEYEQUALS_-_exact_match (0.00s)
+    --- PASS: TestModifyProcess_Conditions/KEYDOESNOTEQUAL_-_not_equal (0.00s)
+    --- PASS: TestModifyProcess_Conditions/VALUEEQUALS_-_value_match (0.00s)
+    --- PASS: TestModifyProcess_Conditions/VALUEDOESNOTEQUAL_-_value_not_equal (0.00s)
+=== RUN   TestModifyProcess_Operations
+=== RUN   TestModifyProcess_Operations/Set_operation_-_overwrite_existing
+=== RUN   TestModifyProcess_Operations/Add_operation_-_only_if_not_exists
+=== RUN   TestModifyProcess_Operations/Rename_operation_-_safe_rename
+=== RUN   TestModifyProcess_Operations/Rename_operation_-_skip_if_target_exists
+=== RUN   TestModifyProcess_Operations/HardRename_operation_-_force_rename
+=== RUN   TestModifyProcess_Operations/Remove_operation
+=== RUN   TestModifyProcess_Operations/RemoveWildcard_operation
+=== RUN   TestModifyProcess_Operations/Empty_ParsedData_-_no_processing
+--- PASS: TestModifyProcess_Operations (0.00s)
+    --- PASS: TestModifyProcess_Operations/Set_operation_-_overwrite_existing (0.00s)
+    --- PASS: TestModifyProcess_Operations/Add_operation_-_only_if_not_exists (0.00s)
+    --- PASS: TestModifyProcess_Operations/Rename_operation_-_safe_rename (0.00s)
+    --- PASS: TestModifyProcess_Operations/Rename_operation_-_skip_if_target_exists (0.00s)
+    --- PASS: TestModifyProcess_Operations/HardRename_operation_-_force_rename (0.00s)
+    --- PASS: TestModifyProcess_Operations/Remove_operation (0.00s)
+    --- PASS: TestModifyProcess_Operations/RemoveWildcard_operation (0.00s)
+    --- PASS: TestModifyProcess_Operations/Empty_ParsedData_-_no_processing (0.00s)
+=== RUN   TestModifyProcess_RemoveRegex
+--- PASS: TestModifyProcess_RemoveRegex (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/filter/modify	(cached)
+=== RUN   TestAddMetadata
+--- PASS: TestAddMetadata (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/input	(cached)
+=== RUN   TestInHTTP_Init
+=== RUN   TestInHTTP_Init/default_configuration
+=== RUN   TestInHTTP_Init/custom_configuration
+=== RUN   TestInHTTP_Init/invalid_port_type
+=== RUN   TestInHTTP_Init/invalid_buffer_size_type
+--- PASS: TestInHTTP_Init (0.00s)
+    --- PASS: TestInHTTP_Init/default_configuration (0.00s)
+    --- PASS: TestInHTTP_Init/custom_configuration (0.00s)
+    --- PASS: TestInHTTP_Init/invalid_port_type (0.00s)
+    --- PASS: TestInHTTP_Init/invalid_buffer_size_type (0.00s)
+=== RUN   TestInHTTP_HandleReq
+=== RUN   TestInHTTP_HandleReq/valid_POST_request
+=== RUN   TestInHTTP_HandleReq/invalid_method
+=== RUN   TestInHTTP_HandleReq/empty_body
+=== RUN   TestInHTTP_HandleReq/body_with_empty_lines
+=== RUN   TestInHTTP_HandleReq/body_too_large
+--- PASS: TestInHTTP_HandleReq (3.00s)
+    --- PASS: TestInHTTP_HandleReq/valid_POST_request (1.00s)
+    --- PASS: TestInHTTP_HandleReq/invalid_method (0.00s)
+    --- PASS: TestInHTTP_HandleReq/empty_body (1.00s)
+    --- PASS: TestInHTTP_HandleReq/body_with_empty_lines (1.00s)
+    --- PASS: TestInHTTP_HandleReq/body_too_large (0.00s)
+=== RUN   TestInHTTP_StartAndExit
+time="2025-11-19T00:11:26+01:00" level=info msg="Starting Http Input" Addr="localhost:42069"
+time="2025-11-19T00:11:26+01:00" level=info msg="Stopping Http Input"
+--- PASS: TestInHTTP_StartAndExit (0.10s)
+=== RUN   TestAddMetadata
+--- PASS: TestAddMetadata (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/input/http	(cached)
+=== RUN   TestTail_Init
+=== RUN   TestTail_Init/valid_config
+=== RUN   TestTail_Init/missing_glob
+=== RUN   TestTail_Init/with_DB_enabled
+    tail_test.go:144: Skipping test: SQLite not available (CGO_ENABLED=0)
+--- PASS: TestTail_Init (0.00s)
+    --- PASS: TestTail_Init/valid_config (0.00s)
+    --- PASS: TestTail_Init/missing_glob (0.00s)
+    --- SKIP: TestTail_Init/with_DB_enabled (0.00s)
+=== RUN   TestTail_ReadFile
+--- PASS: TestTail_ReadFile (0.00s)
+=== RUN   TestTail_FileStatLoop
+--- PASS: TestTail_FileStatLoop (0.00s)
+=== RUN   TestTail_PersistStates
+--- PASS: TestTail_PersistStates (0.20s)
+=== RUN   TestTail_Integration
+    tail_test.go:293: Skipping integration test: SQLite not available (CGO_ENABLED=0)
+--- SKIP: TestTail_Integration (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/input/tail	(cached)
+=== RUN   TestTCP_Init
+=== RUN   TestTCP_Init/default_config
+=== RUN   TestTCP_Init/invalid_port_type
+=== RUN   TestTCP_Init/invalid_buffer_size_type
+--- PASS: TestTCP_Init (0.00s)
+    --- PASS: TestTCP_Init/default_config (0.00s)
+    --- PASS: TestTCP_Init/invalid_port_type (0.00s)
+    --- PASS: TestTCP_Init/invalid_buffer_size_type (0.00s)
+=== RUN   TestTCP_ConnectionHandling
+time="2025-11-19T00:11:23+01:00" level=info msg="Starting tcp input" addr="127.0.0.1:0" buffer_size=65536 max_connections=50 timeout=10m0s
+time="2025-11-19T00:11:23+01:00" level=info msg="Stopping tcp input"
+time="2025-11-19T00:11:23+01:00" level=error msg="could not accept tcp input connection" error="accept tcp 127.0.0.1:59745: use of closed network connection"
+--- PASS: TestTCP_ConnectionHandling (0.00s)
+=== RUN   TestTCP_ConnectionLimit
+time="2025-11-19T00:11:23+01:00" level=info msg="Starting tcp input" addr="127.0.0.1:0" buffer_size=65536 max_connections=50 timeout=10m0s
+time="2025-11-19T00:11:23+01:00" level=warning msg="Maximum tcp connection limit reached, rejecting connection" max_connections=50 remote_addr="127.0.0.1:59801"
+time="2025-11-19T00:11:23+01:00" level=info msg="Stopping tcp input"
+time="2025-11-19T00:11:23+01:00" level=error msg="could not accept tcp input connection" error="accept tcp 127.0.0.1:59747: use of closed network connection"
+--- PASS: TestTCP_ConnectionLimit (0.11s)
+=== RUN   TestTCP_Timeout
+time="2025-11-19T00:11:23+01:00" level=info msg="Starting tcp input" addr="127.0.0.1:0" buffer_size=65536 max_connections=50 timeout=1.002s
+time="2025-11-19T00:11:25+01:00" level=info msg="Stopping tcp input"
+time="2025-11-19T00:11:25+01:00" level=info msg="Closing Connection: 127.0.0.1:59802"
+time="2025-11-19T00:11:25+01:00" level=error msg="could not accept tcp input connection" error="accept tcp 127.0.0.1:59802: use of closed network connection"
+--- PASS: TestTCP_Timeout (2.10s)
+=== RUN   TestConnState
+--- PASS: TestConnState (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/input/tcp	(cached)
+?   	github.com/MuchTitan/go-log-forwarder/internal/output	[no test files]
+=== RUN   TestCounter_Init
+--- PASS: TestCounter_Init (0.00s)
+=== RUN   TestCounter_DefaultInit
+--- PASS: TestCounter_DefaultInit (0.00s)
+=== RUN   TestCounter_IncrementCounter
+--- PASS: TestCounter_IncrementCounter (0.00s)
+=== RUN   TestCounter_Write
+{"count":1}
+{"count":2}
+--- PASS: TestCounter_Write (0.00s)
+=== RUN   TestCounter_FlushExit
+--- PASS: TestCounter_FlushExit (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/output/counter	(cached)
+?   	github.com/MuchTitan/go-log-forwarder/internal/output/gelf	[no test files]
+?   	github.com/MuchTitan/go-log-forwarder/internal/output/splunk	[no test files]
+=== RUN   TestStdoutInit
+=== RUN   TestStdoutInit/default_config
+=== RUN   TestStdoutInit/custom_config
+=== RUN   TestStdoutInit/invalid_format
+=== RUN   TestStdoutInit/with_JSON_indent
+=== RUN   TestStdoutInit/with_colors
+=== RUN   TestStdoutInit/invalid_JSON_indent_type
+=== RUN   TestStdoutInit/invalid_colors_type
+=== RUN   TestStdoutInit/invalid_template
+--- PASS: TestStdoutInit (0.00s)
+    --- PASS: TestStdoutInit/default_config (0.00s)
+    --- PASS: TestStdoutInit/custom_config (0.00s)
+    --- PASS: TestStdoutInit/invalid_format (0.00s)
+    --- PASS: TestStdoutInit/with_JSON_indent (0.00s)
+    --- PASS: TestStdoutInit/with_colors (0.00s)
+    --- PASS: TestStdoutInit/invalid_JSON_indent_type (0.00s)
+    --- PASS: TestStdoutInit/invalid_colors_type (0.00s)
+    --- PASS: TestStdoutInit/invalid_template (0.00s)
+=== RUN   TestStdoutGetters
+--- PASS: TestStdoutGetters (0.00s)
+=== RUN   TestStdoutWriteJSON
+--- PASS: TestStdoutWriteJSON (0.00s)
+=== RUN   TestStdoutWriteJSONIndent
+--- PASS: TestStdoutWriteJSONIndent (0.00s)
+=== RUN   TestStdoutWritePlain
+--- PASS: TestStdoutWritePlain (0.00s)
+=== RUN   TestStdoutWritePlainNoData
+--- PASS: TestStdoutWritePlainNoData (0.00s)
+=== RUN   TestStdoutWriteTemplate
+--- PASS: TestStdoutWriteTemplate (0.00s)
+=== RUN   TestStdoutWriteTagMismatch
+--- PASS: TestStdoutWriteTagMismatch (0.00s)
+=== RUN   TestStdoutWriteWithColors
+--- PASS: TestStdoutWriteWithColors (0.00s)
+=== RUN   TestStdoutFormatJSON
+--- PASS: TestStdoutFormatJSON (0.00s)
+=== RUN   TestStdoutFormatTemplate
+--- PASS: TestStdoutFormatTemplate (0.00s)
+=== RUN   TestStdoutFormatTemplateNil
+--- PASS: TestStdoutFormatTemplateNil (0.00s)
+=== RUN   TestStdoutFormatPlain
+--- PASS: TestStdoutFormatPlain (0.00s)
+=== RUN   TestStdoutColorize
+--- PASS: TestStdoutColorize (0.00s)
+=== RUN   TestStdoutMatchTag
+--- PASS: TestStdoutMatchTag (0.00s)
+=== RUN   TestStdoutErrorChannel
+--- PASS: TestStdoutErrorChannel (0.00s)
+=== RUN   TestStdoutFlush
+--- PASS: TestStdoutFlush (0.00s)
+=== RUN   TestStdoutExit
+--- PASS: TestStdoutExit (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/output/stdout	(cached)
+=== RUN   TestExtractTime
+=== RUN   TestExtractTime/valid_time_extraction
+=== RUN   TestExtractTime/missing_time_key
+=== RUN   TestExtractTime/invalid_time_format
+=== RUN   TestExtractTime/non-string_time_value
+--- PASS: TestExtractTime (0.00s)
+    --- PASS: TestExtractTime/valid_time_extraction (0.00s)
+    --- PASS: TestExtractTime/missing_time_key (0.00s)
+    --- PASS: TestExtractTime/invalid_time_format (0.00s)
+    --- PASS: TestExtractTime/non-string_time_value (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/parser	(cached)
+=== RUN   TestJsonGetters
+--- PASS: TestJsonGetters (0.00s)
+=== RUN   TestJsonInit
+=== RUN   TestJsonInit/basic_config
+=== RUN   TestJsonInit/default_name
+=== RUN   TestJsonInit/with_time_configuration
+=== RUN   TestJsonInit/invalid_time_format
+--- PASS: TestJsonInit (0.00s)
+    --- PASS: TestJsonInit/basic_config (0.00s)
+    --- PASS: TestJsonInit/default_name (0.00s)
+    --- PASS: TestJsonInit/with_time_configuration (0.00s)
+    --- PASS: TestJsonInit/invalid_time_format (0.00s)
+=== RUN   TestJsonProcess
+=== RUN   TestJsonProcess/simple_JSON_object
+=== RUN   TestJsonProcess/nested_JSON_object
+=== RUN   TestJsonProcess/JSON_with_arrays
+=== RUN   TestJsonProcess/JSON_with_numbers
+=== RUN   TestJsonProcess/invalid_JSON
+=== RUN   TestJsonProcess/empty_JSON_object
+=== RUN   TestJsonProcess/JSON_with_null_values
+=== RUN   TestJsonProcess/complex_nested_structure
+=== RUN   TestJsonProcess/not_JSON_at_all
+--- PASS: TestJsonProcess (0.00s)
+    --- PASS: TestJsonProcess/simple_JSON_object (0.00s)
+    --- PASS: TestJsonProcess/nested_JSON_object (0.00s)
+    --- PASS: TestJsonProcess/JSON_with_arrays (0.00s)
+    --- PASS: TestJsonProcess/JSON_with_numbers (0.00s)
+    --- PASS: TestJsonProcess/invalid_JSON (0.00s)
+    --- PASS: TestJsonProcess/empty_JSON_object (0.00s)
+    --- PASS: TestJsonProcess/JSON_with_null_values (0.00s)
+    --- PASS: TestJsonProcess/complex_nested_structure (0.00s)
+    --- PASS: TestJsonProcess/not_JSON_at_all (0.00s)
+=== RUN   TestJsonProcess_TimeExtraction
+--- PASS: TestJsonProcess_TimeExtraction (0.00s)
+=== RUN   TestJsonExit
+--- PASS: TestJsonExit (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/parser/json	(cached)
+=== RUN   TestRegexType
+--- PASS: TestRegexType (0.00s)
+=== RUN   TestRegexName
+--- PASS: TestRegexName (0.00s)
+=== RUN   TestRegexInit
+=== RUN   TestRegexInit/valid_simple_pattern
+=== RUN   TestRegexInit/default_name
+=== RUN   TestRegexInit/with_time_configuration
+=== RUN   TestRegexInit/AllowEmpty_false
+=== RUN   TestRegexInit/invalid_regex_pattern
+=== RUN   TestRegexInit/invalid_time_format
+--- PASS: TestRegexInit (0.00s)
+    --- PASS: TestRegexInit/valid_simple_pattern (0.00s)
+    --- PASS: TestRegexInit/default_name (0.00s)
+    --- PASS: TestRegexInit/with_time_configuration (0.00s)
+    --- PASS: TestRegexInit/AllowEmpty_false (0.00s)
+    --- PASS: TestRegexInit/invalid_regex_pattern (0.00s)
+    --- PASS: TestRegexInit/invalid_time_format (0.00s)
+=== RUN   TestRegexProcess
+=== RUN   TestRegexProcess/simple_named_groups
+=== RUN   TestRegexProcess/no_match
+=== RUN   TestRegexProcess/empty_capture_groups_with_allowEmpty_true
+=== RUN   TestRegexProcess/empty_capture_groups_with_allowEmpty_false
+=== RUN   TestRegexProcess/multiple_named_groups
+=== RUN   TestRegexProcess/pattern_without_named_groups
+--- PASS: TestRegexProcess (0.00s)
+    --- PASS: TestRegexProcess/simple_named_groups (0.00s)
+    --- PASS: TestRegexProcess/no_match (0.00s)
+    --- PASS: TestRegexProcess/empty_capture_groups_with_allowEmpty_true (0.00s)
+    --- PASS: TestRegexProcess/empty_capture_groups_with_allowEmpty_false (0.00s)
+    --- PASS: TestRegexProcess/multiple_named_groups (0.00s)
+    --- PASS: TestRegexProcess/pattern_without_named_groups (0.00s)
+=== RUN   TestRegexProcess_TimeExtraction
+--- PASS: TestRegexProcess_TimeExtraction (0.00s)
+=== RUN   TestRegexExit
+--- PASS: TestRegexExit (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/parser/regex	(cached)
+=== RUN   TestTagMatch
+=== RUN   TestTagMatch/Exact_match
+=== RUN   TestTagMatch/Prefix_match
+=== RUN   TestTagMatch/Suffix_match
+=== RUN   TestTagMatch/Middle_match
+=== RUN   TestTagMatch/Multiple_wildcards
+=== RUN   TestTagMatch/No_match
+=== RUN   TestTagMatch/Empty_pattern
+=== RUN   TestTagMatch/Empty_input
+--- PASS: TestTagMatch (0.00s)
+    --- PASS: TestTagMatch/Exact_match (0.00s)
+    --- PASS: TestTagMatch/Prefix_match (0.00s)
+    --- PASS: TestTagMatch/Suffix_match (0.00s)
+    --- PASS: TestTagMatch/Middle_match (0.00s)
+    --- PASS: TestTagMatch/Multiple_wildcards (0.00s)
+    --- PASS: TestTagMatch/No_match (0.00s)
+    --- PASS: TestTagMatch/Empty_pattern (0.00s)
+    --- PASS: TestTagMatch/Empty_input (0.00s)
+=== RUN   TestMergeMaps
+--- PASS: TestMergeMaps (0.00s)
+=== RUN   TestMustString
+42
+--- PASS: TestMustString (0.00s)
+PASS
+ok  	github.com/MuchTitan/go-log-forwarder/internal/util	(cached)
+FAIL

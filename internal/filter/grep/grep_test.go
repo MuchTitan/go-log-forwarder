@@ -91,3 +91,49 @@ func TestGrepProcess(t *testing.T) {
 		})
 	}
 }
+
+// TestGrepGetters tests simple getter methods
+func TestGrepGetters(t *testing.T) {
+	g := &Grep{
+		name:  "test-grep",
+		match: "*.log",
+	}
+
+	if g.Name() != "test-grep" {
+		t.Errorf("Name() = %v, want test-grep", g.Name())
+	}
+
+	if !g.MatchTag("test.log") {
+		t.Error("MatchTag() should return true for matching tag")
+	}
+
+	if g.Type() != internal.FILTERGREP {
+		t.Errorf("Type() = %v, want FILTERGREP", g.Type())
+	}
+}
+
+// TestGrepInit tests initialization
+func TestGrepInit(t *testing.T) {
+	g := &Grep{}
+
+	config := map[string]any{
+		"Name":    "test",
+		"Match":   "*",
+		"Include": []string{"error"},
+		"Op":      "or",
+	}
+
+	err := g.Init(config)
+	if err != nil {
+		t.Fatalf("Init() failed: %v", err)
+	}
+}
+
+// TestGrepExit tests cleanup
+func TestGrepExit(t *testing.T) {
+	g := &Grep{}
+	err := g.Exit()
+	if err != nil {
+		t.Errorf("Exit() failed: %v", err)
+	}
+}
